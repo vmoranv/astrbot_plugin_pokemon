@@ -1,90 +1,30 @@
 # Services 层接口定义
 
-本文档描述了 `services/` 模块的关键接口和与其他层的交互。Services 层负责编排 core 逻辑和 data_access 层，完成一个完整的用户操作。
+本文档描述了 `services/` 模块的关键接口和与其他层的交互。Services 层是业务逻辑服务层，负责编排 `core` 逻辑和 `data_access` 层，以完成一个完整的用户操作或业务流程。每个服务通常专注于一个特定的业务领域。
 
-## `services/player_service.py`
+## `services/` 目录结构
 
-**职责:** 处理玩家相关的业务逻辑，如注册、查看信息、管理背包等。
+`services/` 目录下包含多个服务文件，每个文件对应一个业务领域：
 
-**关键方法:** (示例)
+*   `player_service.py`: 处理玩家相关的业务逻辑（创建玩家、获取玩家信息、更新玩家状态等）。
+*   `pokemon_service.py`: 处理宝可梦相关的业务逻辑（捕捉宝可梦、管理宝可梦队伍和仓库、宝可梦信息查询等）。
+*   `item_service.py`: 处理道具相关的业务逻辑（使用道具、管理玩家背包、商店购买等）。
+*   `map_service.py`: 处理地图相关的业务逻辑（玩家移动、地图信息查询、遇敌逻辑等）。
+*   `dialog_service.py`: 处理对话相关的业务逻辑（触发对话、处理对话选项等）。
+*   `metadata_service.py`: 处理静态元数据的读取和提供（从数据库加载宝可梦种类、技能、道具等信息）。
 
-### `get_player_info(player_id: str) -> Player | None`
+## 服务职责
 
-*   **描述:** 获取指定玩家的信息。
-*   **输入:**
-    *   `player_id: str`: 玩家的唯一标识符。
-*   **输出:**
-    *   `Player | None`: 玩家模型对象 (来自 models 层)，如果玩家不存在则返回 `None`。
-*   **调用关系:**
-    *   被 `commands/command_handler.py` 调用。
-    *   调用 `data_access/repositories/player_repository.py` 获取数据。
+每个服务文件的主要职责包括：
 
-### `register_player(player_id: str, initial_data: dict) -> Player`
+1.  **接收请求:** 接收来自 `commands/` 层或其他服务的请求，这些请求代表一个用户操作或业务流程的开始。
+2.  **编排逻辑:** 调用 `core/` 模块中的纯游戏逻辑函数和 `data_access/repositories/` 中的数据持久化方法，按照业务规则完成整个流程。
+3.  **处理事务:** 如果一个业务流程涉及多个数据操作，服务层负责管理数据库事务，确保数据的一致性。
+4.  **返回结果:** 将业务处理的结果返回给调用者（通常是 `commands/` 层）。
+5.  **异常处理:** 捕获 `data_access` 或 `core` 层可能抛出的异常，并转换为服务层或更上层可以理解和处理的异常类型（通常是 `utils/exceptions.py` 中定义的自定义异常）。
 
-*   **描述:** 注册一个新玩家。
-*   **输入:**
-    *   `player_id: str`: 新玩家的唯一标识符。
-    *   `initial_data: dict`: 玩家的初始数据（例如，起始地点，初始道具等）。
-*   **输出:**
-    *   `Player`: 新创建的玩家模型对象。
-*   **调用关系:**
-    *   被 `commands/command_handler.py` 调用。
-    *   调用 `data_access/repositories/player_repository.py` 保存数据。
+## 接口定义 / 关键交互
 
-## `services/pokemon_service.py`
-
-**职责:** 处理宝可梦相关的业务逻辑，如捕捉、升级、进化等。
-
-**关键方法:** (示例)
-
-### `catch_pokemon(player_id: str, location_id: str) -> CatchResult`
-
-*   **描述:** 执行捕捉宝可梦的业务流程。
-*   **输入:**
-    *   `player_id: str`: 尝试捕捉的玩家 ID。
-    *   `location_id: str`: 尝试捕捉的地点 ID。
-*   **输出:**
-    *   `CatchResult`: 捕捉结果对象（包含是否成功、遇到的宝可梦信息等）。
-*   **调用关系:**
-    *   被 `commands/command_handler.py` 调用。
-    *   调用 `services/encounter_service.py` 尝试遭遇。
-    *   调用 `data_access/repositories/metadata_repository.py` 获取宝可梦种类数据。
-    *   调用 `core/battle/pokemon_factory.py` 创建宝可梦实例。
-    *   调用 `data_access/repositories/pokemon_repository.py` 保存宝可梦实例。
-
-## `services/battle_service.py`
-
-**职责:** 组织宝可梦对战的业务流程。
-
-**关键方法:** (示例)
-
-### `start_pvp_battle(player1_id: str, player2_id: str) -> BattleSummary`
-
-*   **描述:** 开始一场玩家对战。
-*   **输入:**
-    *   `player1_id: str`: 玩家 1 ID。
-    *   `player2_id: str`: 玩家 2 ID。
-*   **输出:**
-    *   `BattleSummary`: 战斗总结信息。
-*   **调用关系:**
-    *   被 `commands/command_handler.py` 调用。
-    *   调用 `data_access/repositories/player_repository.py` 获取玩家数据。
-    *   调用 `data_access/repositories/pokemon_repository.py` 获取玩家的宝可梦数据。
-    *   调用 `core/game_logic.py` 或 `core/battle/battle_logic.py` 执行核心战斗逻辑。
-    *   调用 `data_access/repositories/battle_repository.py` 记录战斗结果。
-
-## `services/data_init_service.py`
-
-**职责:** 从初始数据文件加载数据并填充到数据库。
-
-**关键方法:**
-
-### `initialize_metadata() -> None`
-
-*   **描述:** 读取 `data/` 目录下的 CSV/JSON 文件，并将元数据（宝可梦种类、技能、道具等）导入到数据库中。
-*   **输入:** 无。
-*   **输出:** 无。
-*   **调用关系:**
-    *   通常在插件启动时由 `main.py` 或一个初始化函数调用。
-    *   调用 `data_access/repositories/metadata_repository.py` 保存数据。
-    *   调用 `utils/txt_parser.py` (如果使用 TXT 文件)。 
+*   **被调用:** 主要被 `commands/command_handler.py` 调用，也可能被其他服务调用（例如，`battle_service` 可能调用 `pokemon_service` 来获取宝可梦信息）。
+*   **调用:** 调用 `core/` 模块中的纯游戏逻辑函数（例如 `core.battle.battle_logic`）和 `data_access/repositories/` 中的数据持久化方法（例如 `data_access.repositories.player_repository.save_player`）。
+*   **依赖:** 依赖于 `core/` 模块、`data_access/` 模块和 `models/` 模块。 

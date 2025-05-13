@@ -1,66 +1,63 @@
 # Core 层接口定义
 
-本文档描述了 `core/` 模块的关键接口和与其他层的交互。Core 层包含不依赖于具体数据存储或外部框架的游戏核心规则和计算。
+本文档描述了 `core/` 模块的关键接口和与其他层的交互。Core 层包含核心游戏逻辑，负责实现不依赖于具体数据存储或外部框架的游戏核心规则和计算。它操作 `models` 中的数据对象，并被 `services` 层调用。
 
-## `core/game_logic.py`
+## `core/` 目录结构
 
-**职责:** 包含如战斗流程控制、伤害计算调用、状态效果处理、进化条件判断等主要游戏逻辑入口。
+`core/` 目录下包含以下主要文件和子目录：
 
-**关键方法:** (示例，具体方法根据游戏逻辑细分)
+*   `game_logic.py`: 游戏流程协调器，编排服务调用以完成复杂的游戏流程（如战斗、捕捉）。
+*   `battle/`: 包含所有与战斗相关的纯逻辑计算和规则实现。
+*   `pet/`: 包含所有与宝可梦个体相关的纯逻辑计算和规则实现（如技能、成长、捕捉、进化等）。
+*   `pokemon_factory.py`: 根据元数据创建宝可梦实例的逻辑。
 
-### `run_battle(player_pokemon: Pokemon, opponent_pokemon: Pokemon) -> BattleResult`
+## Core 模块职责
 
-*   **描述:** 执行一场宝可梦对战的完整流程。
-*   **输入:**
-    *   `player_pokemon: Pokemon`: 玩家的宝可梦实例 (来自 models 层)。
-    *   `opponent_pokemon: Pokemon`: 对手的宝可梦实例 (来自 models 层)。
-*   **输出:**
-    *   `BattleResult`: 包含战斗结果、日志、宝可梦最终状态等信息（一个自定义的数据结构或 models 层对象）。
-*   **调用关系:**
-    *   被 `services/battle_service.py` 调用。
-    *   调用 `core/battle/formulas.py` 进行计算。
-    *   调用 `core/battle/status_effect.py` 和 `core/battle/field_effect.py` 处理效果。
+Core 模块的主要职责包括：
 
-## `core/battle/pokemon_factory.py`
+1.  **实现纯游戏逻辑:** 包含游戏的核心规则、计算公式和状态转换逻辑，不涉及数据持久化或外部交互。
+2.  **操作数据模型:** 直接操作 `models/` 目录中定义的数据对象，进行计算和状态更新。
+3.  **提供可复用逻辑:** 提供可以被不同服务或流程调用的独立逻辑单元。
 
-**职责:** 根据宝可梦种类数据 (Species) 和等级等信息，创建具体的宝可梦实例 (Pokemon)。
+## 关键功能描述 (示例性描述，具体功能根据文件和需求定义)
 
-**关键方法:**
+Core 模块中的文件和子目录提供以下关键功能：
 
-### `create_pokemon_instance(species_data: Species, level: int) -> Pokemon`
+### `core/game_logic.py`
 
-*   **描述:** 创建一个新的宝可梦实例对象。
-*   **输入:**
-    *   `species_data: Species`: 宝可梦种类数据 (来自 models 层)。
-    *   `level: int`: 宝可梦的等级。
-*   **输出:**
-    *   `Pokemon`: 新创建的宝可梦实例对象 (来自 models 层)。
-*   **调用关系:**
-    *   被 `services/pokemon_service.py` (例如，在捕捉或生成野生宝可梦时) 调用。
+*   **职责:** 协调和组织跨多个服务或核心逻辑模块的游戏流程。例如，一个复杂任务的完成可能需要调用玩家服务、物品服务和对话服务，`game_logic.py` 负责按顺序调用这些服务并处理它们之间的逻辑。
+*   **关键交互:** 被 `services/` 层调用，调用 `services/` 层中的方法。
 
-## `core/battle/formulas.py`
+### `core/battle/`
 
-**职责:** 存放所有游戏内的计算公式，如伤害、经验值、属性计算等。
+*   **职责:** 实现所有战斗相关的计算和规则，例如伤害计算、状态效果应用、场地效果影响、遭遇概率计算等。
+*   **关键文件:**
+    *   `battle_logic.py`: 核心战斗回合逻辑和流程。
+    *   `encounter_logic.py`: 决定在特定地点是否遭遇宝可梦以及遭遇何种宝可梦的逻辑。
+    *   `formulas.py`: 存放各种战斗相关的计算公式（伤害、命中、暴击等）。
+    *   `field_effect.py`: 场地效果的具体逻辑实现。
+    *   `status_effect.py`: 状态效果的具体逻辑实现。
+*   **关键交互:** 被 `services/pokemon_service.py` (用于捕捉/遭遇) 和可能的 `services/battle_service.py` (如果存在) 调用。操作 `models/` 中的宝可梦、技能、状态等对象。
 
-**关键方法:** (示例)
+### `core/pet/`
 
-### `calculate_damage(attack_power: int, defense_power: int, move_power: int, ...) -> int`
+*   **职责:** 实现所有与宝可梦个体相关的逻辑，例如技能学习、经验值计算、升级、进化条件判断、捕捉成功率计算、道具对宝可梦的影响等。
+*   **关键文件:**
+    *   `pet_skill.py`: 宝可梦技能的学习、遗忘、使用逻辑。
+    *   `pet_grow.py`: 经验值计算、升级、属性成长逻辑。
+    *   `pet_catch.py`: 宝可梦捕捉成功率计算逻辑。
+    *   `pet_evolution.py`: 宝可梦进化条件判断和进化逻辑。
+    *   `pet_item.py`: 道具对宝可梦的影响逻辑。
+    *   `pet_system.py`: 宝可梦系统的通用逻辑。
+*   **关键交互:** 被 `services/pokemon_service.py` 和 `services/item_service.py` 调用。操作 `models/` 中的宝可梦、道具等对象。
 
-*   **描述:** 计算一次攻击造成的伤害。
-*   **输入:**
-    *   `attack_power: int`: 攻击方的攻击属性值。
-    *   `defense_power: int`: 防守方的防御属性值。
-    *   `move_power: int`: 技能的威力。
-    *   ... 其他影响伤害的参数 (属性克制、天气、状态等)。
-*   **输出:**
-    *   `int`: 计算出的伤害数值。
-*   **调用关系:**
-    *   被 `core/game_logic.py` 或 `core/battle/battle_logic.py` 调用。
+### `core/pokemon_factory.py`
 
-## 其他 Core 模块
+*   **职责:** 根据宝可梦种类元数据和其他参数（如等级、性格等）创建具体的宝可梦实例 (`models.Pokemon` 对象)。
+*   **关键交互:** 被 `services/pokemon_service.py` (在捕捉或生成宝可梦时) 调用。依赖 `metadata_service` 获取宝可梦种类数据。
 
-*   `core/battle/encounter_logic.py`: 包含遭遇野生宝可梦的逻辑。
-    *   **关键方法:** `try_encounter(location: Map) -> Species | None` (输入地图模型，输出遭遇到的宝可梦种类模型或 None)。
-*   `core/battle/field_effect.py`: 处理场地效果。
-*   `core/battle/status_effect.py`: 处理状态效果。
-*   `core/pet/`: 包含宠物技能、养成、捕捉、装备、道具、进化、系统等更细分的逻辑模块，它们也会提供类似的方法供 services 层调用，并操作 models 层对象。 
+## 接口定义 / 关键交互
+
+*   **被调用:** 主要被 `services/` 层中的服务方法调用。
+*   **调用:** 调用 `models/` 中的数据对象的方法或访问其属性。`game_logic.py` 会调用 `services/` 层的方法。
+*   **依赖:** 依赖于 `models/` 模块。`game_logic.py` 依赖于 `services/` 模块。 

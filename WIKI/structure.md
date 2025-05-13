@@ -5,65 +5,101 @@
 ## 分层架构
 
 astrbot_pokemon_plugin/
-├── main.py                     # 插件入口，AstrBot 交互，TXT 文件 I/O
+├── main.py                     # 插件入口，AstrBot 交互
 ├── metadata.yaml               # 插件元数据文件
 ├── _conf_schema.json           # 初始配置文件
-├── commands/                   # 命令解析和分发
-│   ├── __init__.py
-│   └── command_handler.py      # 命令分发器
-│   └── available_commands.py   # 定义可用命令及其参数结构
-├── core/                       # 核心游戏逻辑
-│   ├── __init__.py
-│   ├── game_logic.py           # 主要逻辑入口
-│   ├── battle/
+├── backend/
+│   ├── commands/                   # 命令解析和分发
 │   │   ├── __init__.py
-│   │   ├── battle_logic.py     # 战斗逻辑
-│   │   ├── encounter_logic.py  # 遭遇逻辑
-│   │   ├── formulas.py         # 伤害计算
-│   │   ├── field_effect.py     # 场地效果
-│   │   ├── status_effect.py    # 状态效果
-│   │   ├── pokemon_factory.py   # 宝可梦实例创建
-│   │   └── pokemon_service.py  # 宝可梦服务
-│   ├── pet/
+│   │   └── command_handler.py      # 命令分发器
+│   │   └── available_commands.py   # 定义可用命令及其参数结构
+│   ├── core/                       # 核心游戏逻辑
 │   │   ├── __init__.py
-│   │   ├── pet_skill.py        # 宠物技能
-│   │   ├── pet_grow.py         # 宠物养成
-│   │   ├── pet_catch.py        # 宠物捕捉
-│   │   ├── pet_equipment.py    # 宠物装备
-│   │   ├── pet_item.py         # 宠物道具
-│   │   ├── pet_evolution.py    # 宠物进化
-│   │   ├── pet_system.py       # 宠物系统
-│   │   └── pokemon_service.py  # 宝可梦服务
-│   ├── services/               # 业务逻辑服务层 (编排核心逻辑和数据访问)
+│   │   ├── game_logic.py           # 主要逻辑入口
+│   │   ├── battle/
+│   │   │   ├── __init__.py
+│   │   │   ├── battle_logic.py     # 战斗逻辑
+│   │   │   ├── encounter_logic.py  # 遭遇逻辑
+│   │   │   ├── formulas.py         # 伤害计算
+│   │   │   ├── field_effect.py     # 场地效果
+│   │   │   └── status_effect.py    # 状态效果
+│   │   ├── pet/
+│   │   │   ├── __init__.py
+│   │   │   ├── pet_skill.py        # 宠物技能
+│   │   │   ├── pet_grow.py         # 宠物养成
+│   │   │   ├── pet_catch.py        # 宠物捕捉
+│   │   │   ├── pet_equipment.py    # 宠物装备
+│   │   │   ├── pet_item.py         # 宠物道具
+│   │   │   ├── pet_evolution.py    # 宠物进化
+│   │   │   └── pet_system.py       # 宠物系统
+│   │   └── services/               # 业务逻辑服务层
+│   │       ├── __init__.py
+│   │       ├── player_service.py   # 玩家服务
+│   │       ├── pokemon_service.py  # 宝可梦服务
+│   │       ├── item_service.py     # 物品服务
+│   │       ├── map_service.py      # 地图服务
+│   │       ├── dialog_service.py   # 对话服务
+│   │       └── metadata_service.py # 元数据服务
+│   ├── models/                     # 数据模型/实体定义
 │   │   ├── __init__.py
-│   │   ├── player_repository.py  # 玩家仓库
-│   │   ├── pokemon_repository.py # 宝可梦仓库
-│   │   └── metadata_repository.py # 元数据仓库
-│   └── schema.py               # 数据库表结构定义和创建脚本
-├── models/                     # 数据模型/实体定义
-│   ├── __init__.py
-│   ├── player.py               # 玩家
-│   ├── pokemon.py              # 宝可梦实例
-│   ├── race.py                 # 宝可梦种类/图鉴数据
-│   ├── map.py                  # 地图
-│   ├── dialog.py               # 对话
-│   └── item.py                 # 道具
-├── utils/                      # 通用工具类
-│   ├── __init__.py
-│   └── exceptions.py           # 自定义异常
-├── config/                     # 配置
-│   ├── __init__.py
-│   └── settings.py             # 数据库路径、日志级别等
-├── data/                       # 初始游戏数据 (例如 CSV, JSON)
-│   ├── race.csv                # 宝可梦种类/图鉴数据
-│   ├── skill.csv               # 宝可梦技能数据
-│   ├── map.csv                 # 地图数据
-│   ├── attribute.csv           # 克制表
-│   ├── dialog.csv              # 对话数据
-│   └── item.csv                # 道具数据
-└── db/                         # SQLite 数据库文件存放目录 (由 .gitignore 排除)
-    ├── game_main.db             #主数据库
-    └── game_record.db           #运行记录数据库
+│   │   ├── player.py               # 玩家
+│   │   ├── pokemon.py              # 宝可梦实例
+│   │   ├── race.py                 # 宝可梦种类/图鉴数据
+│   │   ├── map.py                  # 地图
+│   │   ├── dialog.py               # 对话
+│   │   └── item.py                 # 道具
+│   ├── data_access/                # 数据访问层
+│   │   ├── __init__.py
+│   │   ├── db_manager.py           # 数据库管理
+│   │   ├── schema.py               # 数据库表单创建
+│   │   ├── repositories/           # 仓库模式
+│   │   │   ├── __init__.py
+│   │   │   ├── player_repository.py # 玩家仓库
+│   │   │   └── pokemon_repository.py # 宝可梦仓库
+│   ├── utils/                      # 通用工具类
+│   │   ├── __init__.py
+│   │   ├── exceptions.py           # 自定义异常
+│   │   └── constants.py            # 游戏常量和枚举定义
+│   ├── config/                     # 配置
+│   │   ├── __init__.py
+│   │   └── settings.py             # 数据库路径、日志级别等
+│   ├── data/                       # 初始游戏数据
+│   │   ├── pet_dictionary.csv      # 宠物字典
+│   │   ├── pet_system.csv          # 宠物系统
+│   │   ├── attributes.csv          # 属性
+│   │   ├── status_effects.csv      # 状态效果
+│   │   ├── pet_learnable_skills.csv # 宠物可学习技能
+│   │   ├── field_effects.csv       # 场地效果
+│   │   ├── events.csv              # 事件
+│   │   ├── npcs.csv                # NPC
+│   │   ├── skills.csv              # 技能
+│   │   ├── maps.csv                # 地图
+│   │   ├── dialogs.csv             # 对话
+│   │   ├── tasks.csv               # 任务
+│   │   ├── achievements.csv        # 成就
+│   │   ├── shops.csv               # 商店
+│   │   └── items.csv               # 道具
+│   ├── scripts/                    # 脚本目录
+│   │   ├── __init__.py
+│   │   ├── load_pet_dictionary.py  # 加载宠物字典
+│   │   ├── load_pet_system.py      # 加载宠物系统
+│   │   ├── load_attributes.py      # 加载属性
+│   │   ├── load_status_effects.py  # 加载状态效果
+│   │   ├── load_pet_learnable_skills.py # 加载宠物可学习技能
+│   │   ├── load_field_effects.py    # 加载场地效果
+│   │   ├── load_events.py          # 加载事件  
+│   │   ├── load_npcs.py            # 加载NPC
+│   │   ├── load_skills.py          # 加载技能
+│   │   ├── load_maps.py            # 加载地图
+│   │   ├── load_dialogs.py         # 加载对话
+│   │   ├── load_tasks.py           # 加载任务
+│   │   ├── load_achievements.py   # 加载成就
+│   │   ├── load_shops.py           # 加载商店
+│   │   ├── load_items.py           # 加载道具
+│   │   └── load_initial_data.py    # 从 CSV 文件加载初始数据到数据库的脚本
+│   └── db/                         # SQLite 数据库文件存放目录 (由 .gitignore 排除)
+│       ├── game_main.db            #主数据库
+│       └── game_record.db          #运行记录数据库
 
 **核心设计原则：**
 
@@ -72,6 +108,7 @@ astrbot_pokemon_plugin/
 3.  **依赖倒置原则 (Dependency Inversion Principle):** 高层模块不应该依赖于低层模块，两者都应该依赖于抽象。抽象不应该依赖于细节，细节应该依赖于抽象。这可以通过定义清晰的接口（即使在 Python 中是隐式的）来实现。
 4.  **单一职责原则 (Single Responsibility Principle):** 每个类或模块应该有且只有一个改变的理由。
 5.  **配置与代码分离:** 游戏配置（如数据库路径、初始数据文件路径等）应与代码分离。
+6.  **数据加载与校验:** 初始数据加载应通过专门的脚本进行，并包含必要的数据校验逻辑。
 
 **各模块详细说明:**
 
@@ -81,8 +118,9 @@ astrbot_pokemon_plugin/
         -   调用 commands.command_handler 分发事件到相应的处理逻辑。
         -   接收处理结果并使用 `yield` 返回 `MessageEventResult`。
         -   基本的错误捕获和响应。
-    -   **耦合:** 低。只知道如何接收事件和调用命令处理器。
-    -   **[接口定义详情请参阅 WIKI/main_api.md]** (注意: main.py 的接口主要是与 AstrBot 和 command_handler 的交互，已在上面简述，如果需要更详细的独立文件，请告知)
+        -   插件初始化时，负责调用数据库创建和初始数据加载脚本。
+    -   **耦合:** 低。只知道如何接收事件和调用命令处理器，以及进行初始化设置。
+    -   **[接口定义详情请参阅 WIKI/main_api.md]**
 
 2.  **commands/ (命令处理)**
     -   **command_handler.py:**
@@ -95,23 +133,20 @@ astrbot_pokemon_plugin/
     -   **[接口定义详情请参阅 WIKI/commands_api.md]**
 
 3.  **core/ (核心游戏逻辑)**
-    -   **职责:** 实现不依赖于具体数据存储或外部框架的游戏核心规则和计算。
-    -   **game_logic.py:** 包含如战斗流程控制、伤害计算调用、状态效果处理、进化条件判断等。
+    -   **职责:** 实现不依赖于具体数据存储或外部框架的游戏核心规则和计算。操作 models 中的对象，并被 services 层调用。
+    -   **game_logic.py:** 游戏流程协调器，编排服务调用以完成复杂的游戏流程（如战斗、捕捉）。
     -   **pokemon_factory.py:** 根据宝可梦种类数据 (Species) 和等级等信息，创建具体的宝可梦实例 (Pokemon)，包括计算属性、生成初始技能等。
     -   **formulas.py:** 存放所有游戏内的计算公式，如伤害、经验值、属性计算等。
-    -   **高内聚:** 专注于游戏本身的规则。
+    -   **高内聚:** 专注于游戏本身的规则和流程编排。
     -   **极低耦合:** 理想情况下，这部分代码可以被用在不同的界面或存储后端。它操作的是 models 中的对象。
     -   **[接口定义详情请参阅 WIKI/core_api.md]**
+    -   **[计算公式详情请参阅 WIKI/formulas.md]**
 
 4.  **services/ (业务逻辑服务层)**
-    -   **职责:** 编排 core 逻辑和 data_access 层，完成一个完整的用户操作。处理事务性操作（如果需要的话，SQLite 中简单事务）。
-    -   **player_service.py:** 处理玩家注册、登录、查看背包、使用道具等。
-    -   **pokemon_service.py:** 处理捕捉宝可梦、宝可梦升级、学习技能、进化等。
-    -   **battle_service.py:** 组织战斗流程，调用 core.game_logic 进行战斗计算，更新宝可梦状态。
-    -   **encounter_service.py:** 根据地点、玩家状态等生成遭遇的野生宝可梦。
-    -   **data_init_service.py:** 从 data/ 目录下的 CSV/JSON 文件中读取宝可梦种类、技能、道具等元数据，并使用 data_access.metadata_repository 将它们存入数据库。通常在插件首次加载或特定命令下执行。
-    -   **高内聚:** 每个服务类关注一个特定的业务领域。
-    -   **低耦合:** 服务之间可能存在调用关系，但应尽量减少。它们依赖 data_access.repositories 获取和存储数据，并使用 core 模块执行纯逻辑计算。
+    -   **职责:** 编排 core 逻辑和 data_access 层，完成一个完整的用户操作或业务流程。
+    -   例如，`PokemonService` 可能包含 `catch_pokemon(player_id, location_id)` 方法，该方法会调用 `core.encounter_logic` 判断是否遭遇，调用 `data_access.repositories` 保存宝可梦，并调用 `core.pokemon_factory` 创建宝可梦实例。
+    -   **高内聚:** 每个服务专注于一个业务领域（如玩家服务、宝可梦服务、战斗服务）。
+    -   **中等耦合:** 依赖于 core 和 data_access 层，但不依赖于 commands 或 main。
     -   **[接口定义详情请参阅 WIKI/services_api.md]**
 
 5.  **data_access/ (数据访问层)**
@@ -135,10 +170,6 @@ astrbot_pokemon_plugin/
     -   **[接口定义详情请参阅 WIKI/models_api.md]**
 
 7.  **utils/ (通用工具类)**
-    -   **txt_parser.py:** (如果你的插件需要处理 TXT 文件输入/输出，例如与旧版 AstrBot 交互)
-        -   **职责:**
-            -   `parse_input(file_path)`: 读取指定 TXT 文件，将其内容解析为命令和参数字典。
-            -   `format_output(data_dict, file_path)`: 将结果字典格式化并写入指定的 TXT 文件。
     -   **logger.py:** 配置和提供日志记录器实例，方便调试和追踪。建议封装 `astrbot.api.logger`。
     -   **exceptions.py:** 定义游戏中可能发生的自定义异常，如 `PokemonNotFoundException`, `InsufficientItemException`，方便上层捕获和处理。
     -   **[接口定义详情请参阅 WIKI/utils_api.md]**
@@ -179,25 +210,9 @@ astrbot_pokemon_plugin/
 
 ## 数据库表单设计
 
-### `db/game_main.db`设计 ：
+**[数据库表单设计详情请参阅 WIKI/database_schema.md]**
 
--   `pet_dictionary`        # 宠物字典表 (存储宝可梦种类/图鉴数据)
--   `pet_system`            # 宠物系统相关配置或全局数据表
--   `items`                 # 道具数据表
--   `maps`                  # 地图数据表
--   `status_effects`        # 状态效果数据表
--   `field_effects`         # 场地效果数据表
--   `encounters`            # 遭遇配置或记录表
--   `evolutions`            # 进化条件和结果数据表
--   `skills`                # 技能数据表
--   `dialogs`               # 对话数据表
--   `attributes`            # 属性克制表
-
-### `db/game_record.db`设计 ：
-
--   `battle_records`        # 战斗记录表
--   `player_records`        # 玩家记录表
--   `player_storage`        # 玩家仓库/背包表
+**[数据处理流程详情请参阅 WIKI/pipeline.md]**
 
 ## 可扩展性与可维护性
 

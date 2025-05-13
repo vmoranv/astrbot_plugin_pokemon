@@ -1,72 +1,46 @@
 # Utils 层接口定义
 
-本文档描述了 `utils/` 模块的关键接口。Utils 层包含通用工具类，提供不属于特定业务领域的辅助功能。
+本文档描述了 `utils/` 模块的关键接口。Utils 层包含各种通用工具函数和类，提供不属于特定业务领域的功能，旨在提高代码的复用性和可维护性。
 
-## `utils/txt_parser.py` (如果需要)
+## `utils/` 目录结构
 
-**职责:** 处理 TXT 文件输入/输出，例如与旧版 AstrBot 交互。
+`utils/` 目录下包含以下主要文件：
 
-**关键方法:**
+*   `exceptions.py`: 定义自定义异常类。
+*   `constants.py`: 定义游戏中的常量和枚举。
+*   `logger.py`: 配置和提供日志记录器实例。
+*   其他文件: 根据需要可能包含其他通用工具，例如数据校验函数、格式化函数等。
 
-### `parse_input(file_path: str) -> dict`
+## Utils 模块职责
 
-*   **描述:** 读取指定 TXT 文件，将其内容解析为命令和参数字典。
-*   **输入:**
-    *   `file_path: str`: TXT 文件路径。
-*   **输出:**
-    *   `dict`: 解析出的命令和参数字典。
-*   **调用关系:**
-    *   可能被 `main.py` 或其他需要读取 TXT 输入的模块调用。
+Utils 模块的主要职责包括：
 
-### `format_output(data_dict: dict, file_path: str) -> None`
+1.  **提供通用功能:** 提供可以在整个项目范围内使用的辅助函数和类。
+2.  **定义常量和异常:** 集中管理游戏中的常量、枚举和自定义异常。
+3.  **封装外部库:** 可能封装一些外部库（如日志库）的使用，提供统一的接口。
 
-*   **描述:** 将结果字典格式化并写入指定的 TXT 文件。
-*   **输入:**
-    *   `data_dict: dict`: 需要写入的数据字典。
-    *   `file_path: str`: TXT 文件路径。
-*   **输出:** 无。
-*   **调用关系:**
-    *   可能被 `main.py` 或其他需要写入 TXT 输出的模块调用。
+## 关键组件描述
 
-## `utils/logger.py`
+### `utils/exceptions.py`
 
-**职责:** 配置和提供日志记录器实例，方便调试和追踪。建议封装 `astrbot.api.logger`。
+*   **职责:** 定义插件特有的自定义异常类，用于在发生特定错误时抛出，方便上层进行精确的异常捕获和处理。
+*   **关键类:** 定义继承自标准 `Exception` 或其子类的自定义异常，例如 `PokemonNotFoundException`, `InsufficientItemException`, `InvalidCommandException`, `BattleInProgressException` 等。
+*   **关键交互:** 在 `core/`、`services/`、`data_access/` 和 `commands/` 层中抛出和捕获。
 
-**关键方法:** (示例，通常是对标准 logging 库或 astrbot.api.logger 的封装)
+### `utils/constants.py`
 
-### `info(message: str) -> None`
+*   **职责:** 集中定义游戏中使用的各种常量和枚举值，例如属性类型 ID、状态效果 ID、道具类型、地图 ID、命令名称等。使用常量可以提高代码的可读性，避免硬编码，并方便统一修改。
+*   **关键数据结构:** 使用 Python 的常量变量或 `Enum` 类来定义。
+*   **关键交互:** 被项目中的几乎所有模块导入和使用。
 
-*   **描述:** 记录一条信息级别的日志。
-*   **输入:**
-    *   `message: str`: 日志消息。
-*   **输出:** 无。
-*   **调用关系:**
-    *   可在插件的任何层中调用，用于记录运行时信息。
+### `utils/logger.py`
 
-### `error(message: str, exc_info: bool = False) -> None`
-
-*   **描述:** 记录一条错误级别的日志。
-*   **输入:**
-    *   `message: str`: 日志消息。
-    *   `exc_info: bool`: 是否包含异常信息。
-*   **输出:** 无。
-*   **调用关系:**
-    *   可在插件的任何层中调用，用于记录错误信息。
-
-## `utils/exceptions.py`
-
-**职责:** 定义游戏中可能发生的自定义异常。
-
-**关键类:** (示例)
-
-### `PokemonNotFoundException(Exception)`
-
-*   **描述:** 当找不到指定的宝可梦时抛出的异常。
-
-### `InsufficientItemException(Exception)`
-
-*   **描述:** 当玩家道具不足时抛出的异常。
+*   **职责:** 配置 Python 的日志记录器，并提供获取日志记录器实例的函数。建议封装 AstrBot 提供的日志接口，以便在插件中使用统一的日志记录方式。
+*   **关键方法:** 提供一个函数（例如 `get_logger(name: str) -> logging.Logger`）用于获取指定名称的日志记录器实例。
+*   **关键交互:** 被项目中的各个模块调用，用于记录调试信息、警告、错误等。
 
 ## 接口定义 / 关键交互
 
-Utils 层提供静态方法或函数供其他层调用，例如 `utils.logger.info("...")`, `utils.txt_parser.parse_input(...)`。异常类在需要时被抛出并在上层捕获处理。 
+*   **被调用:** Utils 模块中的函数和类被项目中的其他模块广泛调用。
+*   **调用:** 通常不调用其他业务逻辑模块，只依赖于 Python 标准库或少量通用第三方库。
+*   **依赖:** 通常不依赖于其他业务层或数据层模块。 

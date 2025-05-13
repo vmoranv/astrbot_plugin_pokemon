@@ -1,0 +1,27 @@
+# Ignore database files
+backend/db/
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+
+# Ignore editor/IDE specific files
+.vscode/
+.idea/
+.cursor/
+
+# Ignore temporary or intermediate files
+*.tmp
+*.swp
+*.swo
+
+# Ignore the scratch directory
+.scratch/
+
+# Ignore environment files
+.env
+.venv/
+venv/ 
+
+# Ignore the create_backend_structure.sh script
+create_backend_structure.sh
