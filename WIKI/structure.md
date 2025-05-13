@@ -2,52 +2,7 @@
 
 本指南旨在为开发 AstrBot 插件提供架构建议和最佳实践。我们将从一个基础的插件模板开始，逐步介绍如何构建更复杂、可维护的插件。
 
-## 核心组件与概念 (基于基础模板)
-
-基于 AstrBot 提供的 API，基础插件模板会使用以下核心组件：
-
-1.  **`Star` 类**: 所有 AstrBot 插件都需要继承自 `astrbot.api.star.Star` 类。这是插件与框架交互的基础。
-    -   `__init__(self, context: Context)`: 插件实例化时调用，接收一个 `Context` 对象，用于访问框架提供的功能。
-    -   `initialize(self)` (可选异步方法): 插件加载后调用，用于执行异步初始化任务。
-    -   `terminate(self)` (可选异步方法): 插件卸载或停用时调用，用于执行清理任务。
-
-2.  **`Context` 对象**: 在 `Star` 类的 `__init__` 方法中提供，包含插件运行所需的上下文信息和工具，例如访问日志记录器。
-
-3.  **`@register` 装饰器**: 用于在 `main.py` 中注册你的插件类。它需要插件的唯一名称、作者、描述和版本信息。
-    ```python
-    # main.py
-    from astrbot.api.star import Context, Star, register
-
-    @register("your_plugin_name", "YourName", "你的插件描述", "1.0.0")
-    class YourPlugin(Star):
-        # ...
-        pass
-    ```
-
-4.  **`AstrMessageEvent` 对象**: 当用户发送消息触发插件时，命令处理函数会接收到一个 `AstrMessageEvent` 对象。它包含了消息的详细信息，如发送者、消息内容等。
-
-5.  **`@filter.command` 装饰器**: 用于在插件类中注册一个命令处理函数。当用户发送与指定命令匹配的消息时，该函数会被调用。
-    ```python
-    # main.py
-    from astrbot.api.event import filter, AstrMessageEvent
-
-    class YourPlugin(Star):
-        # ...
-        @filter.command("your_command_name")
-        async def handle_your_command(self, event: AstrMessageEvent):
-            """你的命令描述"""
-            # 处理命令逻辑
-            # ...
-            yield event.plain_result("回复用户") # 发送回复
-    ```
-
-6.  **`MessageEventResult`**: 命令处理函数通过 `yield` 返回 `MessageEventResult` 对象（如 `event.plain_result()`）来向用户发送回复。
-
-7.  **日志记录**: 使用 `astrbot.api.logger` 进行日志记录，方便调试和追踪插件运行状态。
-
-## 构建复杂插件：分层架构建议
-
-对于功能更复杂、代码量更大的插件，建议采用分层架构来提高代码的可维护性、可扩展性和可测试性。以下是一个基于分层架构的目录结构建议，以一个类宝可梦插件为例：
+## 分层架构
 
 astrbot_pokemon_plugin/
 ├── main.py                     # 插件入口，AstrBot 交互，TXT 文件 I/O
@@ -67,6 +22,8 @@ astrbot_pokemon_plugin/
 │   │   ├── formulas.py         # 伤害计算
 │   │   ├── field_effect.py     # 场地效果
 │   │   ├── status_effect.py    # 状态效果
+│   │   ├── pokemon_factory.py   # 宝可梦实例创建
+│   │   └── pokemon_service.py  # 宝可梦服务
 │   ├── pet/
 │   │   ├── __init__.py
 │   │   ├── pet_skill.py        # 宠物技能
@@ -76,16 +33,8 @@ astrbot_pokemon_plugin/
 │   │   ├── pet_item.py         # 宠物道具
 │   │   ├── pet_evolution.py    # 宠物进化
 │   │   ├── pet_system.py       # 宠物系统
-├── services/                   # 业务逻辑服务层 (编排核心逻辑和数据访问)
-│   ├── __init__.py
-│   ├── player_service.py       # 玩家服务
-│   ├── battle_service.py       # 战斗服务
-│   ├── pet_service.py          # 宠物服务
-│   └── data_init_service.py    # 初始化/加载游戏元数据服务
-├── data_access/                # 数据访问层
-│   ├── __init__.py
-│   ├── db_manager.py           # SQLite 连接和基本 CRUD 操作封装
-│   ├── repositories/           # 仓库模式，针对每个实体进行数据操作
+│   │   └── pokemon_service.py  # 宝可梦服务
+│   ├── services/               # 业务逻辑服务层 (编排核心逻辑和数据访问)
 │   │   ├── __init__.py
 │   │   ├── player_repository.py  # 玩家仓库
 │   │   ├── pokemon_repository.py # 宝可梦仓库
@@ -133,6 +82,7 @@ astrbot_pokemon_plugin/
         -   接收处理结果并使用 `yield` 返回 `MessageEventResult`。
         -   基本的错误捕获和响应。
     -   **耦合:** 低。只知道如何接收事件和调用命令处理器。
+    -   **[接口定义详情请参阅 WIKI/main_api.md]** (注意: main.py 的接口主要是与 AstrBot 和 command_handler 的交互，已在上面简述，如果需要更详细的独立文件，请告知)
 
 2.  **commands/ (命令处理)**
     -   **command_handler.py:**
@@ -142,6 +92,7 @@ astrbot_pokemon_plugin/
     -   **available_commands.py:**
         -   **职责:** 定义插件支持的所有命令，以及每个命令期望的参数（名称、类型、是否必需）。这有助于参数校验和生成帮助信息。
         -   例如: `{'catch': {'params': ['location_id', 'player_id']}, 'battle': {'params': ['player_id', 'opponent_id']}}`
+    -   **[接口定义详情请参阅 WIKI/commands_api.md]**
 
 3.  **core/ (核心游戏逻辑)**
     -   **职责:** 实现不依赖于具体数据存储或外部框架的游戏核心规则和计算。
@@ -150,6 +101,7 @@ astrbot_pokemon_plugin/
     -   **formulas.py:** 存放所有游戏内的计算公式，如伤害、经验值、属性计算等。
     -   **高内聚:** 专注于游戏本身的规则。
     -   **极低耦合:** 理想情况下，这部分代码可以被用在不同的界面或存储后端。它操作的是 models 中的对象。
+    -   **[接口定义详情请参阅 WIKI/core_api.md]**
 
 4.  **services/ (业务逻辑服务层)**
     -   **职责:** 编排 core 逻辑和 data_access 层，完成一个完整的用户操作。处理事务性操作（如果需要的话，SQLite 中简单事务）。
@@ -160,6 +112,7 @@ astrbot_pokemon_plugin/
     -   **data_init_service.py:** 从 data/ 目录下的 CSV/JSON 文件中读取宝可梦种类、技能、道具等元数据，并使用 data_access.metadata_repository 将它们存入数据库。通常在插件首次加载或特定命令下执行。
     -   **高内聚:** 每个服务类关注一个特定的业务领域。
     -   **低耦合:** 服务之间可能存在调用关系，但应尽量减少。它们依赖 data_access.repositories 获取和存储数据，并使用 core 模块执行纯逻辑计算。
+    -   **[接口定义详情请参阅 WIKI/services_api.md]**
 
 5.  **data_access/ (数据访问层)**
     -   **db_manager.py:**
@@ -172,12 +125,14 @@ astrbot_pokemon_plugin/
         -   **低耦合:** 服务层通过仓库接口与数据库交互，不知道具体的 SQL 实现。这使得更换数据库或修改表结构对服务层的影响降到最低。
     -   **schema.py:**
         -   **职责:** 包含创建所有数据库表的 SQL DDL 语句。提供一个函数，如 `create_tables(db_connection)`，用于在插件首次运行时初始化数据库结构。
+    -   **[接口定义详情请参阅 WIKI/data_access_api.md]**
 
 6.  **models/ (数据模型)**
     -   **职责:** 定义游戏中的核心实体，如 Player, Pokemon, Species, Move, Item。这些通常是简单的 Python 类 (Plain Old Python Objects - POPOs)，主要用于封装数据。
     -   可以包含一些简单的验证逻辑或辅助方法（例如，计算宝可梦当前属性）。
     -   **高内聚:** 每个模型代表一个明确的业务实体。
     -   **低耦合:** 模型之间可以有关联（例如，Player 有一个 Pokemon 列表），但它们不包含复杂的业务逻辑。
+    -   **[接口定义详情请参阅 WIKI/models_api.md]**
 
 7.  **utils/ (通用工具类)**
     -   **txt_parser.py:** (如果你的插件需要处理 TXT 文件输入/输出，例如与旧版 AstrBot 交互)
@@ -186,14 +141,17 @@ astrbot_pokemon_plugin/
             -   `format_output(data_dict, file_path)`: 将结果字典格式化并写入指定的 TXT 文件。
     -   **logger.py:** 配置和提供日志记录器实例，方便调试和追踪。建议封装 `astrbot.api.logger`。
     -   **exceptions.py:** 定义游戏中可能发生的自定义异常，如 `PokemonNotFoundException`, `InsufficientItemException`，方便上层捕获和处理。
+    -   **[接口定义详情请参阅 WIKI/utils_api.md]**
 
 8.  **config/ (配置)**
     -   **settings.py:**
-        -   **职责:** 存储所有配置项，如数据库文件路径 (`DATABASE_PATH = 'db/pokemon_game.db'`)，日志级别，初始数据文件路径等。
+        -   **职责:** 存储所有配置项，如数据库文件路径 (`DATABASE_PATH = 'db/game_main.db'`)，日志级别，初始数据文件路径等。
         -   避免硬编码。
+    -   **[接口定义详情请参阅 WIKI/config_api.md]**
 
 9.  **data/ (初始游戏数据)**
     -   **职责:** 存放宝可梦种类、技能、道具等的静态数据，通常为 CSV 或 JSON 格式。DataInitService 会读取这些文件来填充数据库。
+    -   **耦合:** 低。只被 DataInitService 读取。
 
 ## 工作流程示例 (捕捉宝可梦 - 基于分层架构):**
 
@@ -218,22 +176,6 @@ astrbot_pokemon_plugin/
     -   接收来自 command_handler 的结果。
     -   使用 `yield event.plain_result(...)` 或其他 `MessageEventResult` 类型发送回复。
 7.  **AstrBot:** 将消息回复给用户。
-
-## 通用实践
-
--   **配置管理**: 将数据库路径、API 密钥、日志级别等配置项放在 `config/settings.py` 中，避免硬编码。
--   **日志记录**: 使用 `astrbot.api.logger` 或在其基础上封装自己的日志模块 (`utils/logger.py`)，记录关键操作和错误信息，方便调试。
--   **错误处理**: 定义自定义异常 (`utils/exceptions.py`)，并在各层中捕获和处理异常，向上层传递有意义的错误信息。在 `main.py` 或 command handler 中进行最终的错误捕获，并向用户返回友好的错误提示。
--   **使用 `.scratch` 目录**: 根据指示，可以使用项目根目录下的 `.scratch` 目录存放临时文件或工作数据，例如：
-    ```python
-    import os
-
-    SCRATCH_DIR = '.scratch'
-    os.makedirs(SCRATCH_DIR, exist_ok=True)
-    temp_file_path = os.path.join(SCRATCH_DIR, 'temp_data.json')
-    ```
--   **依赖管理**: 使用 `requirements.txt` 文件列出插件所需的所有 Python 库，方便安装。
--   **测试**: 为核心逻辑 (core) 和服务层 (services) 编写单元测试，确保代码的正确性。
 
 ## 数据库表单设计
 
