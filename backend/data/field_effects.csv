@@ -1,0 +1,12 @@
+field_effect_id,name,description,effect_logic_key,length
+1,晴天,火属性技能威力提升，水属性技能威力下降，特定技能效果改变,"sunny_effect",5
+2,雨天,水属性技能威力提升，火属性技能威力下降，特定技能效果改变,"rainy_effect",5
+3,沙暴,岩石、地面、钢属性宝可梦不受伤害，其他属性宝可梦每回合损失HP，特防提升,"sandstorm_effect",5
+4,冰雹,冰属性宝可梦不受伤害，其他属性宝可梦每回合损失HP,"hail_effect",5
+5,薄雾场地,地面上的宝可梦不受状态效果影响，龙属性技能威力减半,"misty_terrain_effect",5
+6,电气场地,地面上的宝可梦不会睡眠，电属性技能威力提升,"electric_terrain_effect",5
+7,青草场地,地面上的宝可梦每回合恢复HP，草属性技能威力提升，特定技能效果改变,"grassy_terrain_effect",5
+8,精神场地,地面上的宝可梦不受先制技能影响，超能力属性技能威力提升,"psychic_terrain_effect",5
+9,重力,地面上的宝可梦命中率提升，飞行属性和浮游特性失效,"gravity_effect",5
+10,奇妙空间,防御和特防能力值互换,"wonder_room_effect",5
+

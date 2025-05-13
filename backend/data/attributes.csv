@@ -1,0 +1,11 @@
+attribute_id,attribute_name,attacking_id,defending_id,super_effective_id,none_effective_id
+1,草,3,2,0,0
+2,火,1,3,0,0
+3,水,2,1,0,0
+4,虫,1,0,0,0
+5,一般,0,0,0,10
+6,飞行,1,4,0,0
+7,毒,1,0,0,0
+8,地面,2,7,0,6
+9,岩石,2,4,0,0
+10,幽灵,10,0,0,5

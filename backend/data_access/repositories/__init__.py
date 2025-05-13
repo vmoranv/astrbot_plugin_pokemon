@@ -2,3 +2,5 @@
 # from .player_repository import PlayerRepository
 # from .pokemon_repository import PokemonRepository
 # from .metadata_repository import MetadataRepository 
+
+# This file makes the 'backend.data_access.repositories' directory a Python package. 

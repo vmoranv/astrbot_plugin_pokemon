@@ -1,0 +1,11 @@
+skill_id,name,type,power,accuracy,critical_rate,pp,category,priority,target_type,effect_logic_key,description
+101,撞击,一般,40,100,0,35,物理,0,single_target,"","用身体撞击对手进行攻击。"
+102,藤鞭,草,45,100,0,25,物理,0,single_target,"","用藤蔓抽打对手。"
+103,飞叶快刀,草,55,95,1,25,特殊,0,single_target,"","发射锋利的叶片攻击对手，容易击中要害。"
+104,毒粉,毒,0,75,0,35,变化,0,single_target,"apply_poison","向对手撒出毒粉，使其中毒。"
+105,火花,火,40,100,0,25,特殊,0,single_target,"","喷出微弱的火焰攻击对手。"
+106,火苗,火,60,100,0,15,特殊,0,single_target,"","喷出火焰攻击对手。"
+107,水枪,水,40,100,0,25,特殊,0,single_target,"","喷射水柱攻击对手。"
+108,泡沫,水,20,100,0,30,特殊,0,all_opponents,"lower_speed","向对手喷射泡沫，有时会降低对手的速度。"
+109,缩入壳中,水,0,0,0,40,变化,0,self,"raise_defense","缩入壳中，提高自己的防御。"
+110,吐丝,虫,0,95,0,40,变化,0,single_target,"lower_speed","吐出粘丝，大幅降低对手的速度。"

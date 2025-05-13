@@ -1,43 +1,56 @@
-from typing import List, Dict, Any
+from dataclasses import dataclass, field
+from typing import Optional, Dict, Any, List
+import datetime
 # Assuming Pokemon and Item models will be defined
 # from .pokemon import Pokemon
 # from .item import Item
 
+@dataclass
 class Player:
-    """Represents a player in the game."""
-    def __init__(self,
-                 player_id: str,
-                 name: str,
-                 location_id: str,
-                 money: int = 0,
-                 inventory: Dict[int, int] = None, # {item_id: quantity}
-                 pokemon_party: List[int] = None, # List of pokemon instance IDs
-                 pokemon_box: List[int] = None,   # List of pokemon instance IDs
-                 tasks: Dict[int, Any] = None,    # {task_id: progress}
-                 achievements: List[int] = None   # List of achievement IDs
-                ):
-        self.player_id = player_id
-        self.name = name
-        self.location_id = location_id
-        self.money = money
-        self.inventory = inventory if inventory is not None else {}
-        self.pokemon_party = pokemon_party if pokemon_party is not None else []
-        self.pokemon_box = pokemon_box if pokemon_box is not None else []
-        self.tasks = tasks if tasks is not None else {}
-        self.achievements = achievements if achievements is not None else []
+    """
+    玩家数据模型。
+    对应数据库中的 player_records, player_repository, player_party,
+    player_quest_progress, player_achievements, friends 表。
+    这是一个聚合模型，包含了玩家在 game_record.db 中的所有相关数据。
+    """
+    player_id: int
+    location_id: Optional[int] = None # 位置ID
+    last_login_time: Optional[datetime.datetime] = None # 最后登录时间
+    money: int = 0 # 金钱
+
+    # 玩家拥有的道具 (item_id -> quantity)
+    items: Dict[int, int] = field(default_factory=dict)
+
+    # 玩家仓库中的宝可梦ID列表
+    repository_pet_ids: List[int] = field(default_factory=list)
+
+    # 玩家队伍中的宝可梦ID列表
+    party_pet_ids: List[int] = field(default_factory=list)
+
+    # 玩家任务进度 (task_id -> status)
+    quest_progress: Dict[int, str] = field(default_factory=dict)
+
+    # 玩家成就 (achievement_id -> unlock_date)
+    achievements: Dict[int, datetime.datetime] = field(default_factory=dict)
+
+    # 好友列表 (friend_id -> friendship_level)
+    friends: Dict[int, int] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         """Converts the Player object to a dictionary."""
         return {
             "player_id": self.player_id,
-            "name": self.name,
             "location_id": self.location_id,
+            "last_login_time": self.last_login_time.isoformat() if self.last_login_time else None,
             "money": self.money,
-            "inventory": self.inventory,
-            "pokemon_party": self.pokemon_party,
-            "pokemon_box": self.pokemon_box,
-            "tasks": self.tasks,
-            "achievements": self.achievements,
+            "items": self.items,
+            "repository_pet_ids": self.repository_pet_ids,
+            "party_pet_ids": self.party_pet_ids,
+            "quest_progress": self.quest_progress,
+            "achievements": {
+                ach_id: date.isoformat() for ach_id, date in self.achievements.items()
+            },
+            "friends": self.friends,
         }
 
     @staticmethod
@@ -45,17 +58,20 @@ class Player:
         """Creates a Player object from a dictionary."""
         return Player(
             player_id=data["player_id"],
-            name=data["name"],
-            location_id=data["location_id"],
+            location_id=data.get("location_id"),
+            last_login_time=datetime.datetime.fromisoformat(data["last_login_time"]) if data.get("last_login_time") else None,
             money=data.get("money", 0),
-            inventory=data.get("inventory", {}),
-            pokemon_party=data.get("pokemon_party", []),
-            pokemon_box=data.get("pokemon_box", []),
-            tasks=data.get("tasks", {}),
-            achievements=data.get("achievements", []),
+            items=data.get("items", {}),
+            repository_pet_ids=data.get("repository_pet_ids", []),
+            party_pet_ids=data.get("party_pet_ids", []),
+            quest_progress=data.get("quest_progress", {}),
+            achievements={
+                int(ach_id): datetime.datetime.fromisoformat(date_str) for ach_id, date_str in data.get("achievements", {}).items()
+            },
+            friends=data.get("friends", {}),
         )
 
-    # Add methods for inventory management, party management, etc.
+    # Add methods for managing items, pets, quests, etc.
     # def add_item(self, item_id: int, quantity: int = 1):
     #     self.inventory[item_id] = self.inventory.get(item_id, 0) + quantity
 

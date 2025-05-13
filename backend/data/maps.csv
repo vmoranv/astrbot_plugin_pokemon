@@ -1,0 +1,11 @@
+map_id,name,description,encounter_rate,background_image_path,npc_id,common_pet_id,common_pet_rate,rare_pet_id,rare_pet_rate,rare_pet_time
+801,新手村,你冒险开始的地方,0.1,"images/maps/village.png",501,0,0.0,0,0.0,0
+802,新手村森林,村子旁边的茂密森林,0.3,"images/maps/forest.png",0,10,0.8,4,0.1,0
+803,村口小路,连接村庄和外部区域的小路,0.15,"images/maps/path.png",509,1,0.7,4,0.05,0
+804,神秘洞穴入口,通往神秘洞穴的入口,0.2,"images/maps/cave_entrance.png",0,4,0.6,151,0.01,0
+805,钓鱼场,村子附近的河流区域,0.25,"images/maps/fishing_spot.png",504,7,0.7,8,0.1,0
+806,宝可梦农场,农场主饲养宝可梦的地方,0.05,"images/maps/farm.png",505,0,0.0,0,0.0,0
+807,城镇广场,城镇的中心区域,0.0,"images/maps/town_square.png",506,0,0.0,0,0.0,0
+808,城镇商店街,商店和建筑林立的街道,0.0,"images/maps/shopping_street.png",503,0,0.0,0,0.0,0
+809,城镇住宅区,玩家和其他NPC的住所区域,0.0,"images/maps/residential_area.png",507,0,0.0,0,0.0,0
+810,森林深处,森林中更危险的区域,0.4,"images/maps/deep_forest.png",0,10,0.6,11,0.15,0

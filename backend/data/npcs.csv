@@ -1,0 +1,12 @@
+npc_id,pet_id,name,interaction_type,initial_dialog_id
+501,0,村长,dialog,401
+502,0,宝可梦研究员,dialog,407
+503,0,商店老板,shop,0
+504,0,钓鱼爱好者,dialog,409
+505,0,农场主,dialog,411
+506,0,警官,dialog,413
+507,10,小女孩,dialog,415
+508,0,旅行者,dialog,417
+509,0,训练师A,battle,0
+510,0,训练师B,battle,0
+

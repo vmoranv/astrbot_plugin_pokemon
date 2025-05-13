@@ -1,23 +1,23 @@
-from typing import List, Dict, Any
+from dataclasses import dataclass
+from typing import Optional, Dict, Any
 
+@dataclass
 class Map:
-    """Represents a location or map in the game world."""
-    def __init__(self,
-                 map_id: str,
-                 name: str,
-                 description: str = "",
-                 adjacent_maps: List[str] = None, # List of map_ids
-                 encounter_pool: Dict[int, float] = None, # {race_id: encounter_chance}
-                 npcs: List[int] = None, # List of NPC IDs
-                 items: List[int] = None # List of item IDs found here
-                ):
-        self.map_id = map_id
-        self.name = name
-        self.description = description
-        self.adjacent_maps = adjacent_maps if adjacent_maps is not None else []
-        self.encounter_pool = encounter_pool if encounter_pool is not None else {}
-        self.npcs = npcs if npcs is not None else []
-        self.items = items if items is not None else []
+    """
+    地图数据模型。
+    对应数据库中的 maps 表。
+    """
+    map_id: int
+    name: str
+    description: Optional[str] = None
+    encounter_rate: float = 0.0 # 遇敌率
+    background_image_path: Optional[str] = None
+    npc_id: Optional[int] = None # 地图上的NPC ID
+    common_pet_id: Optional[int] = None # 普通宝可梦ID
+    common_pet_rate: float = 0.0 # 普通宝可梦出现率
+    rare_pet_id: Optional[int] = None # 稀有宝可梦ID
+    rare_pet_rate: float = 0.0 # 稀有宝可梦出现率
+    rare_pet_time: Optional[str] = None # 稀有宝可梦出现时间段，例如 "day", "night"
 
     def to_dict(self) -> Dict[str, Any]:
         """Converts the Map object to a dictionary."""
@@ -25,10 +25,14 @@ class Map:
             "map_id": self.map_id,
             "name": self.name,
             "description": self.description,
-            "adjacent_maps": self.adjacent_maps,
-            "encounter_pool": self.encounter_pool,
-            "npcs": self.npcs,
-            "items": self.items,
+            "encounter_rate": self.encounter_rate,
+            "background_image_path": self.background_image_path,
+            "npc_id": self.npc_id,
+            "common_pet_id": self.common_pet_id,
+            "common_pet_rate": self.common_pet_rate,
+            "rare_pet_id": self.rare_pet_id,
+            "rare_pet_rate": self.rare_pet_rate,
+            "rare_pet_time": self.rare_pet_time,
         }
 
     @staticmethod
@@ -37,11 +41,15 @@ class Map:
         return Map(
             map_id=data["map_id"],
             name=data["name"],
-            description=data.get("description", ""),
-            adjacent_maps=data.get("adjacent_maps", []),
-            encounter_pool=data.get("encounter_pool", {}),
-            npcs=data.get("npcs", []),
-            items=data.get("items", [])
+            description=data.get("description"),
+            encounter_rate=data.get("encounter_rate", 0.0),
+            background_image_path=data.get("background_image_path"),
+            npc_id=data.get("npc_id"),
+            common_pet_id=data.get("common_pet_id"),
+            common_pet_rate=data.get("common_pet_rate", 0.0),
+            rare_pet_id=data.get("rare_pet_id"),
+            rare_pet_rate=data.get("rare_pet_rate", 0.0),
+            rare_pet_time=data.get("rare_pet_time"),
         )
 
     # Add methods if needed, e.g., check_can_move_to

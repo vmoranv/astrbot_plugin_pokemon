@@ -1,9 +1,10 @@
 from typing import Optional, List, Dict, Any
 import json
 from backend.models.pokemon import Pokemon
-from backend.data_access.db_manager import fetch_one, fetch_all, execute_query
+from backend.data_access.db_manager import fetch_one, fetch_all, execute_query, get_db
 from backend.utils.exceptions import PokemonNotFoundException
 from backend.utils.logger import get_logger
+import aiosqlite
 
 logger = get_logger(__name__)
 
@@ -95,4 +96,6 @@ class PokemonRepository:
         """
         sql = "DELETE FROM pokemon_instances WHERE pokemon_id = ?"
         await execute_query(sql, (pokemon_id,))
-        logger.debug(f"Deleted pokemon instance with ID: {pokemon_id}") 
+        logger.debug(f"Deleted pokemon instance with ID: {pokemon_id}")
+
+    # 您可以在这里添加其他与 races 表相关的数据库操作方法 

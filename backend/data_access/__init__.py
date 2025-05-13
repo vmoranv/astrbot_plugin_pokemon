@@ -5,3 +5,5 @@ from .schema import create_tables
 # from .repositories.player_repository import PlayerRepository
 # from .repositories.pokemon_repository import PokemonRepository
 # from .repositories.metadata_repository import MetadataRepository 
+
+# This file makes the 'backend.data_access' directory a Python package. 

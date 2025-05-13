@@ -1,21 +1,19 @@
-from typing import Dict, Any
+from dataclasses import dataclass
+from typing import Optional, Dict, Any
 
+@dataclass
 class Item:
-    """Represents an item in the game."""
-    def __init__(self,
-                 item_id: int,
-                 name: str,
-                 description: str = "",
-                 item_type: str = "consumable", # e.g., "consumable", "equipment", "key_item", "pokeball"
-                 value: int = 0, # Sell/buy value
-                 effects: Dict[str, Any] = None # {effect_type: value} e.g., {"heal_hp": 50}
-                ):
-        self.item_id = item_id
-        self.name = name
-        self.description = description
-        self.item_type = item_type
-        self.value = value
-        self.effects = effects if effects is not None else {}
+    """
+    道具数据模型。
+    对应数据库中的 items 表。
+    """
+    item_id: int
+    name: str
+    description: Optional[str] = None
+    effect_type: Optional[str] = None # 效果类型，例如 "heal", "boost", "pokeball"
+    use_target: Optional[str] = None # 使用目标，例如 "self_pet", "opponent_pet", "wild_pet"
+    use_effect: Optional[str] = None # 对应核心逻辑中的使用效果处理函数
+    price: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         """Converts the Item object to a dictionary."""
@@ -23,9 +21,10 @@ class Item:
             "item_id": self.item_id,
             "name": self.name,
             "description": self.description,
-            "item_type": self.item_type,
-            "value": self.value,
-            "effects": self.effects,
+            "effect_type": self.effect_type,
+            "use_target": self.use_target,
+            "use_effect": self.use_effect,
+            "price": self.price,
         }
 
     @staticmethod
@@ -34,10 +33,11 @@ class Item:
         return Item(
             item_id=data["item_id"],
             name=data["name"],
-            description=data.get("description", ""),
-            item_type=data.get("item_type", "consumable"),
-            value=data.get("value", 0),
-            effects=data.get("effects", {})
+            description=data.get("description"),
+            effect_type=data.get("effect_type"),
+            use_target=data.get("use_target"),
+            use_effect=data.get("use_effect"),
+            price=data.get("price", 0)
         )
 
     # Add methods if needed, e.g., apply_effect (might call core logic)

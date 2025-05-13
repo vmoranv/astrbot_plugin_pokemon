@@ -1,0 +1,11 @@
+shop_id,name,npc_id,shop_type,item_id
+901,村庄商店,503,general,201
+901,村庄商店,503,general,202
+901,村庄商店,503,general,205
+901,村庄商店,503,general,210
+902,城镇药店,0,pharmacy,203
+902,城镇药店,0,pharmacy,204
+902,城镇药店,0,pharmacy,206
+902,城镇药店,0,pharmacy,207
+902,城镇药店,0,pharmacy,208
+902,城镇药店,0,pharmacy,209

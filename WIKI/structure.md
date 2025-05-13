@@ -42,11 +42,20 @@ astrbot_pokemon_plugin/
 │   │       └── metadata_service.py # 元数据服务
 │   ├── models/                     # 数据模型/实体定义
 │   │   ├── __init__.py
-│   │   ├── player.py               # 玩家
-│   │   ├── pokemon.py              # 宝可梦实例
-│   │   ├── race.py                 # 宝可梦种类/图鉴数据
-│   │   ├── map.py                  # 地图
+│   │   ├── attribute.py            # 属性
+│   │   ├── achievement.py          # 成就
 │   │   ├── dialog.py               # 对话
+│   │   ├── event.py                # 事件
+│   │   ├── field_effect.py         # 场地效果
+│   │   ├── map.py                  # 地图
+│   │   ├── npc.py                  # NPC
+│   │   ├── player.py               # 玩家
+│   │   ├── pet_learnable_skill.py  # 宠物可学习技能
+│   │   ├── pet_system_data.py      # 宠物系统数据
+│   │   ├── pokemon.py              # 宝可梦实例
+│   │   ├── shop.py                 # 商店
+│   │   ├── status_effect.py        # 状态效果
+│   │   ├── task.py                 # 任务
 │   │   └── item.py                 # 道具
 │   ├── data_access/                # 数据访问层
 │   │   ├── __init__.py

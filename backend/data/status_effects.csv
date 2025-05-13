@@ -1,0 +1,11 @@
+status_effect_id,name,description,effect_logic_key,length
+1,中毒,每回合损失少量HP,"poison_damage",-1
+2,剧毒,每回合损失HP逐渐增加,"toxic_damage",-1
+3,麻痹,速度减半，25%几率无法行动,"paralysis_effect",-1
+4,灼伤,攻击减半，每回合损失少量HP,"burn_effect",-1
+5,睡眠,无法行动，持续1-3回合,"sleep_effect",-1
+6,冰冻,无法行动，直到融化,"freeze_effect",-1
+7,混乱,50%几率攻击自己,"confusion_effect",1-4
+8,着迷,50%几率无法攻击,"attract_effect",-1
+9,畏缩,本回合无法行动,"flinch_effect",1
+10,束缚,每回合损失HP，无法替换宝可梦,"bind_effect",4-5

@@ -1,0 +1,12 @@
+race_id,skill_id,learn_method,learn_level
+1,101,level_up,1
+1,102,level_up,7
+1,103,level_up,13
+2,101,level_up,1
+2,102,level_up,7
+2,103,level_up,13
+2,104,level_up,20
+3,101,level_up,1
+3,102,level_up,7
+3,103,level_up,13
+

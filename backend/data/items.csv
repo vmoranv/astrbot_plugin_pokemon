@@ -1,0 +1,12 @@
+item_id,name,description,effect_type,use_target,use_effect,price
+201,伤药,恢复宝可梦少量HP,"heal",pokemon,"heal_hp_20",300
+202,好伤药,恢复宝可梦中量HP,"heal",pokemon,"heal_hp_50",700
+203,高级伤药,恢复宝可梦大量HP,"heal",pokemon,"heal_hp_120",1500
+204,全复药,恢复宝可梦所有HP并解除所有异常状态,"heal",pokemon,"heal_full_hp_status",2500
+205,解毒药,解除宝可梦的中毒或剧毒状态,"status_heal",pokemon,"heal_poison",100
+206,解麻药,解除宝可梦的麻痹状态,"status_heal",pokemon,"heal_paralysis",200
+207,灼伤药,解除宝可梦的灼伤状态,"status_heal",pokemon,"heal_burn",250
+208,解冻药,解除宝可梦的冰冻状态,"status_heal",pokemon,"heal_freeze",150
+209,唤醒药,解除宝可梦的睡眠状态,"status_heal",pokemon,"heal_sleep",250
+210,精灵球,用于捕捉野生宝可梦,"capture",wild_pokemon,"capture_basic",200
+
