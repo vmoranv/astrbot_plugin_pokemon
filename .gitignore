@@ -25,3 +25,7 @@ venv/
 
 # Ignore the create_backend_structure.sh script
 create_backend_structure.sh
+
+# Ignore the test directory
+test/
+conftest.py

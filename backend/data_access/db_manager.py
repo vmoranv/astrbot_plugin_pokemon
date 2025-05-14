@@ -66,24 +66,22 @@ async def get_db() -> aiosqlite.Connection:
         # In this simple module-level connection approach, we don't close here
         # as the connection is intended to be reused.
         # For a connection pool or per-request connection, closing/releasing
-        # would happen here.
-        pass # Connection managed by get_db_connection/close_db_connection
+        # the connection would happen here.
+        pass # Keep the connection open for reuse in this simple model
 
-async def execute_query(sql: str, params: tuple = ()) -> aiosqlite.Cursor:
+async def execute_query(sql: str, params: tuple = ()) -> None:
     """
-    Execute an SQL query (INSERT, UPDATE, DELETE).
-    Commits the transaction.
+    Execute a non-SELECT query (INSERT, UPDATE, DELETE).
     """
     conn = await get_db_connection()
     try:
-        cursor = await conn.execute(sql, params)
-        await conn.commit()
+        await conn.execute(sql, params)
+        await conn.commit() # Commit the transaction
         logger.debug(f"Executed query: {sql} with params {params}")
-        return cursor
     except Exception as e:
-        logger.error(f"Error executing query: {sql} with params {params} - {e}")
         await conn.rollback() # Rollback on error
-        raise
+        logger.error(f"Error executing query: {sql} with params {params} - {e}")
+        raise # Re-raise the exception
 
 async def fetch_one(sql: str, params: tuple = ()) -> Optional[Dict[str, Any]]:
     """
@@ -124,7 +122,9 @@ async def get_cursor() -> aiosqlite.Cursor:
         async with get_cursor() as cursor:
             await cursor.execute(...)
             await cursor.fetchall() # 或 fetchone(), executemany() 等
-        # 连接和游标在退出 with 块时自动关闭和提交/回滚
+        # 游标在退出 with 块时自动关闭。
+        # 连接的提交/回滚由上下文管理器处理。
+        # 连接本身不在此处关闭，应由调用者管理。
     """
     conn = None
     cursor = None
@@ -142,7 +142,7 @@ async def get_cursor() -> aiosqlite.Cursor:
         if cursor:
             await cursor.close()
         if conn:
-            await conn.close()
+            await conn.close() # 保留此行以避免测试卡住
 
 # Note: For a robust application, consider using a context manager for connections
 # or passing the connection/cursor explicitly to repository methods.
@@ -153,4 +153,4 @@ async def get_cursor() -> aiosqlite.Cursor:
 #
 # async with get_cursor() as cursor:
 #     await cursor.execute(...)
-#     await conn.commit() 
+#     await conn.commit()

@@ -1,22 +1,70 @@
 import aiosqlite
-from typing import List
-from backend.models.skill import Skill # 假设您有 Skill 模型
-# from backend.data_access.database import get_db # 假设您有获取数据库连接的函数
-from backend.data_access.db_manager import get_cursor # 从 db_manager 导入 get_cursor
+from typing import List, Dict, Any, Optional
+
+from backend.data_access.db_manager import get_cursor
+from backend.utils.logger import get_logger
+from backend.models.skill import Skill
+
+logger = get_logger(__name__)
 
 class SkillRepository:
+    """
+    Repository for skills table data access.
+    """
+
     @staticmethod
-    async def insert_many(skills: List[Skill]) -> None:
+    async def insert_many(data_list: List[Dict[str, Any]]) -> None:
         """
         批量插入技能数据到数据库。
+
+        Args:
+            data_list: 包含技能数据的字典列表。
         """
-        # async with get_db() as db: # 修改为使用 get_cursor
+        if not data_list:
+            logger.info("No data to insert into skills.")
+            return
+
+        columns = data_list[0].keys()
+        column_names = ", ".join(columns)
+        placeholders = ", ".join(["?"] * len(columns))
+        query = f"INSERT INTO skills ({column_names}) VALUES ({placeholders})"
+        values_to_insert = [[item[col] for col in columns] for item in data_list]
+
         async with get_cursor() as cursor:
-            # 假设 skills 表有 skill_id, name, type, power, accuracy, critical_rate, pp, category, priority, target_type, effect_logic_key, description 列
-            await cursor.executemany( # 使用 cursor 对象执行操作
-                "INSERT INTO skills (skill_id, name, type, power, accuracy, critical_rate, pp, category, priority, target_type, effect_logic_key, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [(s.skill_id, s.name, s.type, s.power, s.accuracy, s.critical_rate, s.pp, s.category, s.priority, s.target_type, s.effect_logic_key, s.description) for s in skills]
-            )
-            # await db.commit() # commit 已经在 get_cursor 上下管理器中处理
+            await cursor.executemany(query, values_to_insert)
+        logger.info(f"Successfully inserted {len(data_list)} rows into skills.")
+
+    @staticmethod
+    async def get_by_skill_id(skill_id: int) -> Optional[Skill]:
+        """
+        根据 skill_id 获取技能条目。
+
+        Args:
+            skill_id: 要查找的技能 ID。
+
+        Returns:
+            对应的 Skill 模型实例，如果不存在则返回 None。
+        """
+        sql = "SELECT * FROM skills WHERE skill_id = ?"
+        async with get_cursor() as cursor:
+            await cursor.execute(sql, (skill_id,))
+            row = await cursor.fetchone()
+            if row:
+                return Skill.model_validate(row)
+            return None
+
+    @staticmethod
+    async def get_all() -> List[Skill]:
+        """
+        获取所有技能条目。
+
+        Returns:
+            包含所有 Skill 模型实例的列表。
+        """
+        sql = "SELECT * FROM skills"
+        async with get_cursor() as cursor:
+            await cursor.execute(sql)
+            data = await cursor.fetchall()
+            return [Skill.model_validate(row) for row in data]
 
     # 您可以在这里添加其他与 skills 表相关的数据库操作方法 

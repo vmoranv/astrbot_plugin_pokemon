@@ -50,6 +50,7 @@ astrbot_pokemon_plugin/
 │   │   ├── map.py                  # 地图
 │   │   ├── npc.py                  # NPC
 │   │   ├── player.py               # 玩家
+│   │   ├── pet_dictionary.py       # 宠物字典
 │   │   ├── pet_learnable_skill.py  # 宠物可学习技能
 │   │   ├── pet_system_data.py      # 宠物系统数据
 │   │   ├── pokemon.py              # 宝可梦实例

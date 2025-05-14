@@ -53,7 +53,7 @@ class PokemonRepository:
         pokemon_data['individual_values'] = json.dumps(pokemon_data['individual_values'])
         pokemon_data['effort_values'] = json.dumps(pokemon_data['effort_values'])
 
-        if pokemon.pokemon_id is None: # New instance
+        if pokemon.pokemon_id is None:
             sql = """
             INSERT INTO pokemon_instances (race_id, owner_id, nickname, level, current_hp, experience, max_hp, attack, defense, special_attack, special_defense, speed, skills, status_effects, nature_id, ability_id, individual_values, effort_values)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -67,9 +67,9 @@ class PokemonRepository:
                 pokemon_data['effort_values']
             )
             cursor = await execute_query(sql, params)
-            pokemon.pokemon_id = cursor.lastrowid # Set the generated ID
+            pokemon.pokemon_id = cursor.lastrowid
             logger.debug(f"Created new pokemon instance with ID: {pokemon.pokemon_id}")
-        else: # Existing instance
+        else:
             sql = """
             UPDATE pokemon_instances
             SET race_id = ?, owner_id = ?, nickname = ?, level = ?, current_hp = ?, experience = ?,
