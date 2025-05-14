@@ -64,6 +64,7 @@ astrbot_pokemon_plugin/
 │   │   ├── repositories/           # 仓库模式
 │   │   │   ├── __init__.py
 │   │   │   ├── player_repository.py # 玩家仓库
+│   │   │   ├── pet_dictionary_repository.py # 宠物字典仓库
 │   │   │   └── pokemon_repository.py # 宝可梦仓库
 │   ├── utils/                      # 通用工具类
 │   │   ├── __init__.py

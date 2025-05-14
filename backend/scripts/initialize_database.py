@@ -79,7 +79,12 @@ async def initialize_database() -> None:
 #         logger.error(f"An error occurred while reading {filepath}: {e}")
 #         return []
 
+async def main():
+    """
+    Main function to run database initialization.
+    """
+    await initialize_database()
 
-# Example usage:
-# if __name__ == "__main__":
-#     asyncio.run(initialize_database()) 
+if __name__ == "__main__":
+    # This block runs when the script is executed directly
+    asyncio.run(main()) 
