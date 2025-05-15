@@ -36,6 +36,17 @@ class Player:
     # 好友列表 (friend_id -> friendship_level)
     friends: Dict[int, int] = field(default_factory=dict)
 
+    # 玩家队伍中的宝可梦ID列表
+    party_pokemon_ids: List[int] = field(default_factory=list)
+
+    # 玩家背包中的宝可梦ID列表
+    box_pokemon_ids: List[int] = field(default_factory=list)
+
+    # S2 refinement: Temporarily store encountered wild pokemon details
+    # This is a simple in-memory storage. For a distributed system,
+    # this might need to be stored in the database or a cache.
+    encountered_wild_pokemon: Optional[Dict[str, Any]] = field(default=None)
+
     def to_dict(self) -> Dict[str, Any]:
         """Converts the Player object to a dictionary."""
         return {
@@ -51,6 +62,9 @@ class Player:
                 ach_id: date.isoformat() for ach_id, date in self.achievements.items()
             },
             "friends": self.friends,
+            "party_pokemon_ids": self.party_pokemon_ids,
+            "box_pokemon_ids": self.box_pokemon_ids,
+            "encountered_wild_pokemon": self.encountered_wild_pokemon,
         }
 
     @staticmethod
@@ -69,6 +83,9 @@ class Player:
                 int(ach_id): datetime.datetime.fromisoformat(date_str) for ach_id, date_str in data.get("achievements", {}).items()
             },
             friends=data.get("friends", {}),
+            party_pokemon_ids=data.get("party_pokemon_ids", []),
+            box_pokemon_ids=data.get("box_pokemon_ids", []),
+            encountered_wild_pokemon=data.get("encountered_wild_pokemon"),
         )
 
     # Add methods for managing items, pets, quests, etc.

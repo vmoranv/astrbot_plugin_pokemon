@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, TypedDict
+from typing import Optional, Dict, Any, TypedDict, List
 
 # 定义一个 TypedDict 来描述从字典创建 Skill 对象时期望的字典结构
 class SkillData(TypedDict):
@@ -18,6 +18,18 @@ class SkillData(TypedDict):
     priority: int
     effect_logic_key: Optional[str]
     description: Optional[str]
+
+@dataclass
+class SecondaryEffect:
+    """Represents a secondary effect of a skill."""
+    effect_type: str # e.g., "status", "stat_change", "heal"
+    target: str # "self", "target", "all_opponents", etc.
+    chance: float # Chance of the effect occurring (0.0 to 1.0)
+    # Effect details - structure depends on effect_type
+    # For status: {"status_id": int}
+    # For stat_change: {"stat": str, "stages": int}
+    # For heal: {"heal_percentage": float} or {"heal_amount": int}
+    details: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class Skill:
@@ -52,6 +64,9 @@ class Skill:
     priority: Optional[int] = 0
     effect_logic_key: str = ""
     description: str = ""
+    effect_chance: Optional[float] = None # Chance of applying a primary effect (e.g., status) - Note: Secondary effects have their own chance
+    critical_hit_ratio: int = 1 # Critical hit ratio (1 for normal, 2 for high crit)
+    secondary_effects: List[SecondaryEffect] = field(default_factory=list) # List of secondary effects
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -73,6 +88,9 @@ class Skill:
             "target_type": self.target_type,
             "effect_logic_key": self.effect_logic_key,
             "description": self.description,
+            "effect_chance": self.effect_chance,
+            "critical_hit_ratio": self.critical_hit_ratio,
+            "secondary_effects": [se.__dict__ for se in self.secondary_effects], # Convert SecondaryEffect to dict
         }
 
     @staticmethod
@@ -99,4 +117,7 @@ class Skill:
             target_type=data["target_type"],
             effect_logic_key=data.get("effect_logic_key", ""),
             description=data.get("description", ""),
+            effect_chance=data.get("effect_chance"),
+            critical_hit_ratio=data.get("critical_hit_ratio", 1),
+            secondary_effects=[SecondaryEffect(**se_data) for se_data in data.get("secondary_effects", [])], # Load secondary effects
         ) 

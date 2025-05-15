@@ -30,4 +30,8 @@ class InvalidArgumentException(GameException):
     """Exception raised when a command argument is invalid."""
     pass
 
+class MapNotFoundException(GameException):
+    """Exception raised when a map is not found."""
+    pass
+
 # Add other specific exceptions as needed

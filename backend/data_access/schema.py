@@ -202,6 +202,7 @@ CREATE TABLE IF NOT EXISTS maps (
     rare_pet_id INTEGER, -- References race_id
     rare_pet_rate REAL,
     rare_pet_time TEXT, -- e.g., 'day', 'night', 'any'
+    adjacent_maps TEXT, -- 新增：存储相邻地图ID的JSON字符串
     FOREIGN KEY (common_pet_id) REFERENCES pet_dictionary(race_id),
     FOREIGN KEY (rare_pet_id) REFERENCES pet_dictionary(race_id)
 );

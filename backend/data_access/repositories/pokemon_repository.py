@@ -1,6 +1,6 @@
 from typing import Optional, List, Dict, Any
 import json
-from backend.models.pokemon import Pokemon
+from backend.models.pokemon import Pokemon, PokemonSkill
 from backend.data_access.db_manager import fetch_one, fetch_all, execute_query, get_db
 from backend.utils.exceptions import PokemonNotFoundException
 from backend.utils.logger import get_logger
@@ -44,8 +44,8 @@ class PokemonRepository:
 
     async def save_pokemon_instance(self, pokemon: Pokemon) -> int:
         """
-        Saves or updates a pokemon instance's data.
-        Returns the pokemon_id (useful for new instances).
+        Saves or updates a pokemon instance in the database.
+        Returns the pokemon_id.
         """
         pokemon_data = pokemon.to_dict()
         pokemon_data['skills'] = json.dumps(pokemon_data['skills'])
@@ -55,11 +55,14 @@ class PokemonRepository:
 
         if pokemon.pokemon_id is None:
             sql = """
-            INSERT INTO pokemon_instances (race_id, owner_id, nickname, level, current_hp, experience, max_hp, attack, defense, special_attack, special_defense, speed, skills, status_effects, nature_id, ability_id, individual_values, effort_values)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO pokemon_instances (
+                instance_id, race_id, owner_id, nickname, level, current_hp, experience,
+                max_hp, attack, defense, special_attack, special_defense, speed,
+                skills, status_effects, nature_id, ability_id, individual_values, effort_values
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
             params = (
-                pokemon.race_id, pokemon.owner_id, pokemon.nickname, pokemon.level,
+                pokemon.instance_id, pokemon.race_id, pokemon.owner_id, pokemon.nickname, pokemon.level,
                 pokemon.current_hp, pokemon.experience, pokemon.max_hp, pokemon.attack,
                 pokemon.defense, pokemon.special_attack, pokemon.special_defense,
                 pokemon.speed, pokemon_data['skills'], pokemon_data['status_effects'],
@@ -72,13 +75,13 @@ class PokemonRepository:
         else:
             sql = """
             UPDATE pokemon_instances
-            SET race_id = ?, owner_id = ?, nickname = ?, level = ?, current_hp = ?, experience = ?,
-                max_hp = ?, attack = ?, defense = ?, special_attack = ?, special_defense = ?, speed = ?,
+            SET instance_id = ?, race_id = ?, owner_id = ?, nickname = ?, level = ?, current_hp = ?, experience = ?,
+                max_hp = ?, attack = ?, defense, special_attack = ?, special_defense = ?, speed = ?,
                 skills = ?, status_effects = ?, nature_id = ?, ability_id = ?, individual_values = ?, effort_values = ?
             WHERE pokemon_id = ?
             """
             params = (
-                pokemon.race_id, pokemon.owner_id, pokemon.nickname, pokemon.level,
+                pokemon.instance_id, pokemon.race_id, pokemon.owner_id, pokemon.nickname, pokemon.level,
                 pokemon.current_hp, pokemon.experience, pokemon.max_hp, pokemon.attack,
                 pokemon.defense, pokemon.special_attack, pokemon.special_defense,
                 pokemon.speed, pokemon_data['skills'], pokemon_data['status_effects'],

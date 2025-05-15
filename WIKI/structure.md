@@ -32,6 +32,7 @@ astrbot_pokemon_plugin/
 │   │   │   ├── pet_item.py         # 宠物道具
 │   │   │   ├── pet_evolution.py    # 宠物进化
 │   │   │   └── pet_system.py       # 宠物系统
+│   │   ├── pokemon_factory.py      # 宝可梦工厂
 │   │   └── services/               # 业务逻辑服务层
 │   │       ├── __init__.py
 │   │       ├── player_service.py   # 玩家服务
@@ -98,7 +99,7 @@ astrbot_pokemon_plugin/
 │   │   ├── load_status_effects.py  # 加载状态效果
 │   │   ├── load_pet_learnable_skills.py # 加载宠物可学习技能
 │   │   ├── load_field_effects.py    # 加载场地效果
-│   │   ├── load_events.py          # 加载事件  
+│   │   ├── load_events.py          # 加载事件
 │   │   ├── load_npcs.py            # 加载NPC
 │   │   ├── load_skills.py          # 加载技能
 │   │   ├── load_maps.py            # 加载地图
@@ -144,56 +145,103 @@ astrbot_pokemon_plugin/
     -   **[接口定义详情请参阅 WIKI/commands_api.md]**
 
 3.  **core/ (核心游戏逻辑)**
-    -   **职责:** 实现不依赖于具体数据存储或外部框架的游戏核心规则和计算。操作 models 中的对象，并被 services 层调用。
-    -   **game_logic.py:** 游戏流程协调器，编排服务调用以完成复杂的游戏流程（如战斗、捕捉）。
-    -   **pokemon_factory.py:** 根据宝可梦种类数据 (Species) 和等级等信息，创建具体的宝可梦实例 (Pokemon)，包括计算属性、生成初始技能等。
-    -   **formulas.py:** 存放所有游戏内的计算公式，如伤害、经验值、属性计算等。
-    -   **高内聚:** 专注于游戏本身的规则和流程编排。
-    -   **极低耦合:** 理想情况下，这部分代码可以被用在不同的界面或存储后端。它操作的是 models 中的对象。
+    -   **职责:** 包含纯游戏逻辑和计算，不依赖于数据持久化或外部框架。操作 `models` 中的数据对象。
+    -   **高内聚:** 专注于游戏核心规则和计算。
+    -   **低耦合:** 不直接与 `data_access` 或外部系统交互。
+    -   **game_logic.py:**
+        -   **职责:** 协调和组织跨多个服务或核心逻辑模块的游戏流程。例如，一个复杂任务的完成可能需要调用玩家服务、物品服务和对话服务，`game_logic.py` 负责按顺序调用这些服务并处理它们之间的逻辑。
+        -   **关键交互:** 被 `services/` 层调用，调用 `services/` 层中的方法。
+    -   **battle/:**
+        -   **职责:** 实现所有战斗相关的纯逻辑计算和规则实现。
+        -   **关键文件:**
+            *   `battle_logic.py`: 核心战斗回合逻辑和流程。
+            *   `encounter_logic.py`: 决定在特定地点是否遭遇宝可梦以及遭遇何种宝可梦的逻辑。
+            *   `formulas.py`: 存放各种战斗相关的计算公式（伤害、命中、暴击等）。
+            *   `field_effect.py`: 场地效果的具体逻辑实现。
+            *   `status_effect.py`: 状态效果的具体逻辑实现。
+        -   **关键交互:** 被 `services/pokemon_service.py` (用于捕捉/遭遇) 和可能的 `services/battle_service.py` (如果存在) 调用。操作 `models/` 中的宝可梦、技能、状态等对象。
+    -   **pet/:**
+        -   **职责:** 实现所有与宝可梦个体相关的逻辑，例如技能学习、经验值计算、升级、进化条件判断、捕捉成功率计算、道具对宝可梦的影响等。
+        -   **关键文件:**
+            *   `pet_skill.py`: 宝可梦技能的学习、遗忘、使用逻辑。
+            *   `pet_grow.py`: 经验值计算、升级、属性成长逻辑。
+            *   `pet_catch.py`: 宝可梦捕捉成功率计算逻辑。
+            *   `pet_equipment.py`: 宠物装备
+            *   `pet_item.py`: 道具对宝可梦的影响逻辑。
+            *   `pet_evolution.py`: 宝可梦进化条件判断和进化逻辑。
+            *   `pet_system.py`: 宝可梦系统的通用逻辑。
+        -   **关键交互:** 被 `services/pokemon_service.py` 和 `services/item_service.py` 调用。操作 `models/` 中的宝可梦、道具等对象。
+    -   **pokemon_factory.py:**
+        -   **职责:** 根据宝可梦种类元数据和其他参数（如等级、性格等）创建具体的宝可梦实例 (`models.Pokemon` 对象)。
+        -   **关键交互:** 被 `services/pokemon_service.py` (在捕捉或生成宝可梦时) 调用。依赖 `metadata_service` 获取宝可梦种类数据。
     -   **[接口定义详情请参阅 WIKI/core_api.md]**
-    -   **[计算公式详情请参阅 WIKI/formulas.md]**
 
 4.  **services/ (业务逻辑服务层)**
-    -   **职责:** 编排 core 逻辑和 data_access 层，完成一个完整的用户操作或业务流程。
-    -   例如，`PokemonService` 可能包含 `catch_pokemon(player_id, location_id)` 方法，该方法会调用 `core.encounter_logic` 判断是否遭遇，调用 `data_access.repositories` 保存宝可梦，并调用 `core.pokemon_factory` 创建宝可梦实例。
-    -   **高内聚:** 每个服务专注于一个业务领域（如玩家服务、宝可梦服务、战斗服务）。
-    -   **中等耦合:** 依赖于 core 和 data_access 层，但不依赖于 commands 或 main。
+    -   **职责:** 包含具体的业务流程逻辑，编排 `core` 和 `data_access` 层的调用。
+    -   **高内聚:** 每个服务专注于一个特定的业务领域（玩家、宝可梦、物品等）。
+    -   **低耦合:** 不直接与 `commands` 或 `main` 交互，通过接口与 `core` 和 `data_access` 交互。
+    -   **player_service.py:** 处理玩家相关的业务逻辑（创建玩家、获取玩家信息等）。
+    -   **pokemon_service.py:** 处理宝可梦相关的业务逻辑（捕捉、战斗、管理宝可梦等）。
+    -   **item_service.py:** 处理物品相关的业务逻辑（使用物品、管理背包等）。
+    -   **map_service.py:** 处理地图相关的业务逻辑（移动、遇敌等）。
+    -   **dialog_service.py:** 处理对话相关的业务逻辑。
+    -   **metadata_service.py:** 负责加载和提供游戏元数据（宝可梦种类、技能、道具属性等）。它可能从数据库或静态文件中加载数据，并提供给其他服务和 Core 层使用。
     -   **[接口定义详情请参阅 WIKI/services_api.md]**
 
-5.  **data_access/ (数据访问层)**
-    -   **db_manager.py:**
-        -   **职责:** 管理 SQLite 数据库连接（获取连接、关闭连接）。提供执行 SQL 查询（execute_query, fetch_one, fetch_all）的底层方法。处理数据库连接的异常。
-        -   **高内聚:** 专注于数据库的连接和基本操作。
-    -   **repositories/:** (仓库模式)
-        -   **职责:** 为每个核心实体 (Player, Pokemon 实例, Species 元数据等) 提供一个仓库。封装所有与该实体相关的 SQL 查询和数据转换逻辑（从数据库行到 models 对象，反之亦然）。
-        -   例如, PokemonRepository 会有 `save_pokemon_instance(pokemon_model)`, `get_pokemon_instance_by_id(id)`, `get_player_pokemons(player_id)` 等方法。
-        -   **高内聚:** 每个仓库只处理一种实体的数据持久化。
-        -   **低耦合:** 服务层通过仓库接口与数据库交互，不知道具体的 SQL 实现。这使得更换数据库或修改表结构对服务层的影响降到最低。
-    -   **schema.py:**
-        -   **职责:** 包含创建所有数据库表的 SQL DDL 语句。提供一个函数，如 `create_tables(db_connection)`，用于在插件首次运行时初始化数据库结构。
-    -   **[接口定义详情请参阅 WIKI/data_access_api.md]**
-
-6.  **models/ (数据模型)**
-    -   **职责:** 定义游戏中的核心实体，如 Player, Pokemon, Species, Move, Item。这些通常是简单的 Python 类 (Plain Old Python Objects - POPOs)，主要用于封装数据。
-    -   可以包含一些简单的验证逻辑或辅助方法（例如，计算宝可梦当前属性）。
-    -   **高内聚:** 每个模型代表一个明确的业务实体。
-    -   **低耦合:** 模型之间可以有关联（例如，Player 有一个 Pokemon 列表），但它们不包含复杂的业务逻辑。
+5.  **models/ (数据模型/实体定义)**
+    -   **职责:** 定义游戏中的各种数据结构（宝可梦、玩家、物品、技能等）。这些是纯数据对象，不包含业务逻辑。
+    -   **高内聚:** 每个模型定义一个特定的实体的数据结构。
+    -   **低耦合:** 不依赖于其他层，只被其他层使用。
     -   **[接口定义详情请参阅 WIKI/models_api.md]**
 
+6.  **data_access/ (数据访问层)**
+    -   **职责:** 负责与数据库进行交互，执行数据的增删改查操作，并将数据库行映射到 `models` 对象，反之亦然。
+    -   **高内聚:** 专注于数据库操作。
+    -   **低耦合:** 不包含业务逻辑，只被 `services` 层调用。
+    -   **db_manager.py:** 负责数据库连接的管理。
+    -   **schema.py:** 定义数据库表结构和创建脚本。
+    -   **repositories/:** 实现仓库模式，为每个主要实体提供数据访问接口。
+        -   **player_repository.py:** 玩家数据访问。
+        -   **pet_dictionary_repository.py:** 宝可梦图鉴数据访问。
+        -   **pokemon_repository.py:** 宝可梦实例数据访问。
+    -   **[接口定义详情请参阅 WIKI/data_access_api.md]**
+
 7.  **utils/ (通用工具类)**
-    -   **logger.py:** 配置和提供日志记录器实例，方便调试和追踪。建议封装 `astrbot.api.logger`。
-    -   **exceptions.py:** 定义游戏中可能发生的自定义异常，如 `PokemonNotFoundException`, `InsufficientItemException`，方便上层捕获和处理。
+    -   **职责:** 存放各种通用的工具函数和类，不属于特定业务领域。
+    -   **高内聚:** 每个工具类或函数专注于一个特定的通用任务。
+    -   **低耦合:** 不依赖于其他业务层。
+    -   **exceptions.py:** 自定义异常类。
+    -   **constants.py:** 游戏常量和枚举定义。
     -   **[接口定义详情请参阅 WIKI/utils_api.md]**
 
 8.  **config/ (配置)**
-    -   **settings.py:**
-        -   **职责:** 存储所有配置项，如数据库文件路径 (`DATABASE_PATH = 'db/game_main.db'`)，日志级别，初始数据文件路径等。
-        -   避免硬编码。
+    -   **职责:** 存放应用的配置信息。
+    -   **settings.py:** 具体的配置项（数据库路径、日志级别等）。
     -   **[接口定义详情请参阅 WIKI/config_api.md]**
 
 9.  **data/ (初始游戏数据)**
-    -   **职责:** 存放宝可梦种类、技能、道具等的静态数据，通常为 CSV 或 JSON 格式。DataInitService 会读取这些文件来填充数据库。
-    -   **耦合:** 低。只被 DataInitService 读取。
+    -   **职责:** 存放用于初始化数据库的原始游戏数据文件（如 CSV）。
+    -   **[数据文件格式详情请参阅 WIKI/data_format.md]**
+
+10. **scripts/ (脚本目录)**
+    -   **职责:** 存放用于执行一次性任务或维护任务的脚本，例如数据库初始化和数据加载。
+    -   **load_initial_data.py:** 主数据加载脚本，协调调用其他加载脚本。
+
+11. **db/ (数据库文件存放目录)**
+    -   存放实际的 SQLite 数据库文件。此目录应被版本控制忽略 (`.gitignore`)。
+
+**开发流程建议:**
+
+1.  **定义 Models:** 首先定义游戏中的各种数据模型。
+2.  **设计 Database Schema:** 根据 Models 设计数据库表结构，并编写 `schema.py`。
+3.  **实现 Data Access:** 实现 Repositories，完成数据的基本 CRUD 操作。
+4.  **实现 Core Logic:** 实现纯游戏逻辑和计算函数，操作 Models 对象。
+5.  **实现 Services:** 编写业务逻辑服务，编排 Core 和 Data Access 的调用。
+6.  **实现 Commands:** 定义可用命令，并编写命令处理器调用 Services。
+7.  **实现 Main:** 编写插件入口，处理 AstrBot 事件，调用 Commands，并进行初始化。
+8.  **编写 Scripts:** 编写数据加载等维护脚本。
+9.  **编写 Tests:** 为各层编写单元测试和集成测试。
+10. **完善 Documentation:** 实时更新 WIKI 文档。
 
 ## 工作流程示例 (捕捉宝可梦 - 基于分层架构):**
 

@@ -1,0 +1,6 @@
+ability_id,ability_name,description,status_immunities
+1,免疫,免疫中毒,poison
+2,干劲,免疫睡眠,sleep
+3,引火,免疫灼伤,burn
+4,蓄电,免疫麻痹,paralysis
+5,不冻之躯,免疫冰冻,freeze     
