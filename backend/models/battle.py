@@ -104,4 +104,21 @@ class Battle:
             run_attempts=data.get("run_attempts", 0),
             weather=data.get("weather"),
             terrain=data.get("terrain"),
-        ) 
+        )
+
+    def get_all_pokemon(self) -> List[Pokemon]:
+        """
+        获取战斗中的所有宝可梦（双方的活跃宝可梦）。
+        
+        Returns:
+            包含所有宝可梦的列表
+        """
+        pokemons = []
+        
+        if self.active_player_pokemon:
+            pokemons.append(self.active_player_pokemon)
+        
+        if self.active_opponent_pokemon:
+            pokemons.append(self.active_opponent_pokemon)
+        
+        return pokemons 

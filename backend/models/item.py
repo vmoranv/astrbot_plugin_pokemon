@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Optional, Dict, Any
+from enum import Enum
 
 @dataclass
 class Item:
@@ -41,3 +42,11 @@ class Item:
         )
 
     # Add methods if needed, e.g., apply_effect (might call core logic)
+
+class ItemEffectType(Enum):
+    HEAL_HP = "heal_hp" # 修改 HEAL 为更具体的 HEAL_HP
+    HEAL_PP = "heal_pp" # 新增：PP回复
+    CURE_STATUS = "cure_status" # 修改 STATUS_HEAL 为更具体的 CURE_STATUS
+    CAPTURE = "capture"
+    EVOLUTION = "evolution"
+    STAT_BOOST_BATTLE = "stat_boost_battle" # 新增：战斗中能力提升

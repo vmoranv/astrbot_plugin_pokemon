@@ -35,6 +35,34 @@ class StatusEffectInstance:
     turns_remaining: Optional[int] = None # None for permanent status like Poison/Burn, int for temporary like Sleep/Freeze
 
 @dataclass
+class VolatileStatusInstance:
+    """Represents an active volatile (temporary) status effect on a Pokemon in battle."""
+    status_type: str  # e.g., "flinch", "confusion", "encore", "taunt", "protect"
+    turns_remaining: Optional[int] = None # None for statuses that last until a condition is met or end of turn
+    source_skill_id: Optional[int] = None # ID of the skill that caused this status
+    # Add other relevant fields, e.g., for confusion, the chance to hit self
+    # For encore, the skill_id being encored
+    # For protect, the success rate if used consecutively
+    data: Dict[str, Any] = field(default_factory=dict) # For storing additional status-specific data
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "status_type": self.status_type,
+            "turns_remaining": self.turns_remaining,
+            "source_skill_id": self.source_skill_id,
+            "data": self.data,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "VolatileStatusInstance":
+        return cls(
+            status_type=data["status_type"],
+            turns_remaining=data.get("turns_remaining"),
+            source_skill_id=data.get("source_skill_id"),
+            data=data.get("data", {}),
+        )
+
+@dataclass
 class Pokemon:
     """
     Represents a specific instance of a Pokemon owned by a player.
@@ -61,6 +89,8 @@ class Pokemon:
 
     # Skills learned by this instance, including current PP
     skills: List[PokemonSkill] = field(default_factory=list) # Changed type hint
+    status_effects: List[StatusEffectInstance] = field(default_factory=list) # Active status effects
+    volatile_status: List[VolatileStatusInstance] = field(default_factory=list) # Active temporary battle statuses
 
     # Active status effects on this pokemon instance
     status_effect: Optional[StatusEffectInstance] = None
@@ -101,10 +131,37 @@ class Pokemon:
     sleep_turns: int = field(default=0)
     freeze_turns: int = field(default=0)
 
+    # New attributes
+    major_status = None  # 主要状态效果（如中毒、灼伤等）
+    volatile_statuses = []  # 易变状态效果列表（如混乱、畏缩等）
+
+    # 新增：战斗中的能力等级
+    # 键: "attack", "defense", "special_attack", "special_defense", "speed", "accuracy", "evasion"
+    # 值: 整数，范围通常是 -6 到 +6
+    battle_stat_stages: Dict[str, int] = field(default_factory=lambda: {
+        "attack": 0,
+        "defense": 0,
+        "special_attack": 0,
+        "special_defense": 0,
+        "speed": 0,
+        "accuracy": 0,  # 命中率等级
+        "evasion": 0    # 闪避率等级
+    })
+    
+    # 标记是否在战斗中，用于决定某些效果是否适用或如何清除
+    in_battle: bool = False 
+
     def __post_init__(self):
         """Post-initialization to set current_hp to max_hp if not set."""
         if self.current_hp <= 0 and self.max_hp is not None:
             self.current_hp = self.max_hp
+        
+        # 确保 battle_stat_stages 总是初始化
+        if not self.battle_stat_stages:
+            self.battle_stat_stages = {
+                "attack": 0, "defense": 0, "special_attack": 0,
+                "special_defense": 0, "speed": 0, "accuracy": 0, "evasion": 0
+            }
 
     def is_fainted(self) -> bool:
         """Checks if the pokemon has fainted."""
@@ -320,7 +377,7 @@ class Pokemon:
         return None # Skill not found
 
     def to_dict(self) -> Dict[str, Any]:
-        """Converts the Pokemon object to a dictionary for storage/serialization."""
+        """Serializes the Pokemon instance to a dictionary."""
         return {
             "pokemon_id": self.pokemon_id,
             "instance_id": self.instance_id,
@@ -336,25 +393,41 @@ class Pokemon:
             "special_attack": self.special_attack,
             "special_defense": self.special_defense,
             "speed": self.speed,
-            # Serialize skills list, including current_pp
-            "skills": [ps.__dict__ for ps in self.skills], # Convert PokemonSkill objects to dicts
-            "status_effect": self.status_effect.__dict__ if self.status_effect else None, # Convert StatusEffectInstance to dict
-            "individual_values": self.individual_values,
-            "effort_values": self.effort_values,
-            "nature_id": self.nature_id,
+            "skills": [skill.to_dict() for skill in self.skills],
+            "status_effects": [status.to_dict() for status in self.status_effects],
+            "volatile_status": [status.to_dict() for status in self.volatile_status],
+            "battle_stat_stages": self.battle_stat_stages,
+            "is_fainted": self.is_fainted,
+            "last_used_skill_id": self.last_used_skill_id,
+            "is_in_battle": self.is_in_battle,
+            "is_in_storage": self.is_in_storage,
+            "ivs": self.ivs,
+            "evs": self.evs,
+            "nature": self.nature,
+            "gender": self.gender,
+            "shiny": self.shiny,
+            "friendship": self.friendship,
+            "held_item_id": self.held_item_id,
+            "catch_date": self.catch_date.isoformat() if self.catch_date else None,
+            "met_location": self.met_location,
+            "met_level": self.met_level,
+            "pokerus_status": self.pokerus_status,
             "ability_id": self.ability_id,
-            "stat_stages": self.stat_stages, # Include stat_stages
-            "sleep_turns": self.sleep_turns,
-            "freeze_turns": self.freeze_turns,
-            # Note: race is not serialized as it is derived
+            "form_id": self.form_id,
+            "tera_type_id": self.tera_type_id,
+            "is_tera": self.is_tera,
         }
 
-    @staticmethod
-    def from_dict(data: Dict[str, Any]) -> "Pokemon":
-        """Creates a Pokemon object from a dictionary."""
-        pokemon = Pokemon(
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Pokemon":
+        """Deserializes a Pokemon instance from a dictionary."""
+        # Handle date deserialization
+        catch_date_str = data.get("catch_date")
+        catch_date = datetime.datetime.fromisoformat(catch_date_str) if catch_date_str else None
+
+        pokemon = cls(
             pokemon_id=data.get("pokemon_id"),
-            instance_id=data.get("instance_id", str(uuid.uuid4())), # Generate new UUID if not present
+            instance_id=data.get("instance_id", str(uuid.uuid4())),
             race_id=data["race_id"],
             owner_id=data.get("owner_id"),
             nickname=data["nickname"],
@@ -367,30 +440,104 @@ class Pokemon:
             special_attack=data.get("special_attack"),
             special_defense=data.get("special_defense"),
             speed=data.get("speed"),
-            # Deserialize skills list into PokemonSkill objects
-            skills=[PokemonSkill(**ps_data) for ps_data in data.get("skills", [])], # Convert dicts back to PokemonSkill objects
-            status_effect=StatusEffectInstance(**data.get("status_effect", {})) if data.get("status_effect") else None,
-            individual_values=data.get("individual_values", {}),
-            effort_values=data.get("effort_values", {}),
-            nature_id=data.get("nature_id"),
+            skills=[PokemonSkill.from_dict(s) for s in data.get("skills", [])],
+            status_effects=[StatusEffectInstance.from_dict(se) for se in data.get("status_effects", [])],
+            volatile_status=[VolatileStatusInstance.from_dict(vs) for vs in data.get("volatile_status", [])],
+            battle_stat_stages=data.get("battle_stat_stages", cls.get_default_battle_stat_stages()),
+            is_fainted=data.get("is_fainted", False),
+            last_used_skill_id=data.get("last_used_skill_id"),
+            is_in_battle=data.get("is_in_battle", False),
+            is_in_storage=data.get("is_in_storage", False),
+            ivs=data.get("ivs", {stat: random.randint(0, 31) for stat in ["hp", "attack", "defense", "special_attack", "special_defense", "speed"]}),
+            evs=data.get("evs", {stat: 0 for stat in ["hp", "attack", "defense", "special_attack", "special_defense", "speed"]}),
+            nature=data.get("nature", "Hardy"), # Default to a neutral nature
+            gender=data.get("gender", "Male"), # Default gender
+            shiny=data.get("shiny", False),
+            friendship=data.get("friendship", 70), # Default friendship
+            held_item_id=data.get("held_item_id"),
+            catch_date=catch_date,
+            met_location=data.get("met_location"),
+            met_level=data.get("met_level"),
+            pokerus_status=data.get("pokerus_status", 0), # 0: none, 1: infected, 2: cured
             ability_id=data.get("ability_id"),
-            stat_stages=data.get("stat_stages", {}),
-            sleep_turns=data.get("sleep_turns", 0),
-            freeze_turns=data.get("freeze_turns", 0),
+            form_id=data.get("form_id"),
+            tera_type_id=data.get("tera_type_id"),
+            is_tera=data.get("is_tera", False),
         )
-        # Ensure default IVs/EVs are set if not loaded
-        if not pokemon.individual_values:
-             pokemon.individual_values = {
-                 "hp": random.randint(0, 31), "attack": random.randint(0, 31),
-                 "defense": random.randint(0, 31), "special_attack": random.randint(0, 31),
-                 "special_defense": random.randint(0, 31), "speed": random.randint(0, 31),
-             }
-        if not pokemon.effort_values:
-             pokemon.effort_values = {
-                 "hp": 0, "attack": 0, "defense": 0,
-                 "special_attack": 0, "special_defense": 0, "speed": 0,
-             }
+        # Ensure current_hp is set, defaulting to max_hp if not provided or if None after calculation
+        if pokemon.max_hp is not None and pokemon.current_hp is None:
+            pokemon.current_hp = pokemon.max_hp
+        if pokemon.current_hp is not None and pokemon.max_hp is not None: # Ensure current_hp doesn't exceed max_hp
+            pokemon.current_hp = min(pokemon.current_hp, pokemon.max_hp)
         return pokemon
+
+    def remove_volatile_status(self, logic_key: str) -> bool:
+        """
+        移除指定的易变状态效果。
+        
+        Args:
+            logic_key: 要移除的状态效果的逻辑键
+            
+        Returns:
+            如果成功移除状态效果则返回True，否则返回False
+        """
+        for status in self.volatile_statuses[:]:
+            if status.effect_logic_key == logic_key:
+                self.volatile_statuses.remove(status)
+                return True
+        return False
+        
+    def has_volatile_status(self, logic_key: str) -> bool:
+        """
+        检查宝可梦是否具有指定的易变状态效果。
+        
+        Args:
+            logic_key: 要检查的状态效果的逻辑键
+            
+        Returns:
+            如果宝可梦具有该状态效果则返回True，否则返回False
+        """
+        return any(status.effect_logic_key == logic_key for status in self.volatile_statuses)
+
+    def get_stat(self, stat_name: str) -> int:
+        """
+        Returns the current value of a specific stat.
+        
+        Args:
+            stat_name: The name of the stat to retrieve.
+            
+        Returns:
+            The current value of the specified stat.
+        """
+        if stat_name in self.battle_stat_stages:
+            return self.battle_stat_stages[stat_name]
+        else:
+            logger.warning(f"Unknown stat: {stat_name}")
+            return 0
+
+    def recalculate_stats(self):
+        """
+        Recalculates the stats of the Pokemon based on its current level, race, and IVs/EVs.
+        """
+        if self.race is None:
+            logger.warning(f"Cannot recalculate stats for {self.nickname}: Race data missing.")
+            return
+
+        calculate_stats(self, self.race, None) # Pass None for metadata_repo
+
+    def reset_battle_stats(self):
+        """重置战斗相关的临时状态，例如能力等级。"""
+        self.battle_stat_stages = {
+            "attack": 0, "defense": 0, "special_attack": 0,
+            "special_defense": 0, "speed": 0, "accuracy": 0, "evasion": 0
+        }
+        # 也可以在这里清除一些仅战斗中有效的状态效果
+        # self.status_effects = [se for se in self.status_effects if not se.battle_only]
+        logger.debug(f"宝可梦 {self.nickname} (ID: {self.pokemon_id}) 的战斗能力等级已重置。")
+
+    def has_status_effect(self, status_id: int) -> bool:
+        """Checks if the pokemon has a specific status effect."""
+        return any(se.status_id == status_id for se in self.status_effects)
 
 # Assuming calculate_stats and calculate_exp_needed are defined elsewhere and imported
 # from .formulas import calculate_exp_needed # Import calculate_exp_needed

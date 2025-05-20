@@ -12,6 +12,12 @@ class BattleEvent:
     event_type: str
     details: Dict[str, Any] = field(default_factory=dict)
 
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "event_type": self.event_type,
+            "details": self.details,
+        }
+
 @dataclass
 class StatStageChangeEvent(BattleEvent):
     """Event triggered when a Pokemon's stat stage changes."""
@@ -20,10 +26,9 @@ class StatStageChangeEvent(BattleEvent):
     stages_changed: int
     new_stage: int
     message: str
+    event_type: str = "stat_stage_change" # Define event_type
 
     def __post_init__(self):
-        # Set event_type automatically
-        self.event_type = "stat_stage_change"
         # Store relevant details in the base class details dict as well
         self.details = {
             "pokemon_instance_id": self.pokemon.instance_id,
@@ -45,9 +50,9 @@ class DamageDealtEvent(BattleEvent):
     is_not_effective: bool
     is_immune: bool
     message: str
+    event_type: str = "damage_dealt" # Define event_type
 
     def __post_init__(self):
-        self.event_type = "damage_dealt"
         self.details = {
             "attacker_instance_id": self.attacker.instance_id,
             "defender_instance_id": self.defender.instance_id,
@@ -65,9 +70,9 @@ class FaintEvent(BattleEvent):
     """Event triggered when a Pokemon faints."""
     fainted_pokemon: Pokemon
     message: str
+    event_type: str = "faint" # Define event_type
 
     def __post_init__(self):
-        self.event_type = "faint"
         self.details = {
             "fainted_pokemon_instance_id": self.fainted_pokemon.instance_id,
             "message": self.message,
@@ -79,9 +84,9 @@ class StatusEffectAppliedEvent(BattleEvent):
     pokemon: Pokemon
     status_effect: StatusEffect
     message: str
+    event_type: str = "status_effect_applied" # Define event_type
 
     def __post_init__(self):
-        self.event_type = "status_effect_applied"
         self.details = {
             "pokemon_instance_id": self.pokemon.instance_id,
             "status_effect_id": self.status_effect.status_id,
@@ -94,9 +99,9 @@ class StatusEffectRemovedEvent(BattleEvent):
     pokemon: Pokemon
     status_effect: StatusEffect
     message: str
+    event_type: str = "status_effect_removed" # Define event_type
 
     def __post_init__(self):
-        self.event_type = "status_effect_removed"
         self.details = {
             "pokemon_instance_id": self.pokemon.instance_id,
             "status_effect_id": self.status_effect.status_id,
@@ -109,9 +114,9 @@ class HealEvent(BattleEvent):
     pokemon: Pokemon
     amount: int
     message: str
+    event_type: str = "heal" # Define event_type
 
     def __post_init__(self):
-        self.event_type = "heal"
         self.details = {
             "pokemon_instance_id": self.pokemon.instance_id,
             "amount": self.amount,
@@ -124,9 +129,9 @@ class AbilityTriggerEvent(BattleEvent):
     pokemon: Pokemon
     ability: Ability
     message: str
+    event_type: str = "ability_trigger" # Define event_type
 
     def __post_init__(self):
-        self.event_type = "ability_trigger"
         self.details = {
             "pokemon_instance_id": self.pokemon.instance_id,
             "ability_id": self.ability.ability_id if self.ability else None, # Assuming Ability has ability_id
@@ -140,9 +145,9 @@ class FieldEffectEvent(BattleEvent):
     effect_name: str
     state: str # e.g., "start", "active", "end"
     message: str
+    event_type: str = "field_effect" # Define event_type
 
     def __post_init__(self):
-        self.event_type = "field_effect"
         self.details = {
             "effect_type": self.effect_type,
             "effect_name": self.effect_name,
@@ -152,19 +157,21 @@ class FieldEffectEvent(BattleEvent):
 
 @dataclass
 class VolatileStatusChangeEvent(BattleEvent):
-    """Event triggered when a Pokemon's volatile status changes (applied, active, removed)."""
+    """
+    表示宝可梦的易变状态变化的事件。
+    """
     pokemon: Pokemon
-    volatile_status_type: str # e.g., "confusion", "flinch", "bound"
-    state: str # e.g., "applied", "active", "removed"
-    message: str # Message related to the volatile status change
+    status_logic_key: str
+    is_applied: bool
+    message: str = ""
+    event_type: str = "volatile_status_change" # Define event_type
 
     def __post_init__(self):
-        self.event_type = "volatile_status_change"
         self.details = {
             "pokemon_instance_id": self.pokemon.instance_id,
-            "volatile_status_type": self.volatile_status_type,
-            "state": self.state,
-            "message": self.message,
+            "status_logic_key": self.status_logic_key,
+            "is_applied": self.is_applied,
+            "message": self.message
         }
 
 @dataclass
@@ -174,9 +181,9 @@ class ForcedSwitchEvent(BattleEvent):
     reason: str # e.g., "skill", "item", "ability"
     reason_details: Optional[Dict[str, Any]] = None # Details about the reason (e.g., skill_id)
     message: str # Message indicating the forced switch
+    event_type: str = "forced_switch" # Define event_type
 
     def __post_init__(self):
-        self.event_type = "forced_switch"
         self.details = {
             "pokemon_switched_out_instance_id": self.pokemon_switched_out.instance_id,
             "reason": self.reason,
@@ -190,9 +197,9 @@ class ItemTriggerEvent(BattleEvent):
     pokemon: Pokemon
     item: Item
     message: str
+    event_type: str = "item_trigger" # Define event_type
 
     def __post_init__(self):
-        self.event_type = "item_trigger"
         self.details = {
             "pokemon_instance_id": self.pokemon.instance_id,
             "item_id": self.item.item_id if self.item else None, # Assuming Item has item_id
@@ -207,9 +214,9 @@ class AbilityChangeEvent(BattleEvent):
     new_ability: Optional[Ability]
     reason: str # e.g., "Gastro Acid", "Simple Beam"
     message: str
+    event_type: str = "ability_change" # Define event_type
 
     def __post_init__(self):
-        self.event_type = "ability_change"
         self.details = {
             "pokemon_instance_id": self.pokemon.instance_id,
             "old_ability_id": self.old_ability.ability_id if self.old_ability else None,
@@ -225,9 +232,9 @@ class MoveMissedEvent(BattleEvent):
     target: Pokemon
     skill: Skill
     message: str
+    event_type: str = "move_missed" # Define event_type
 
     def __post_init__(self):
-        self.event_type = "move_missed"
         self.details = {
             "attacker_instance_id": self.attacker.instance_id,
             "target_instance_id": self.target.instance_id,
@@ -240,9 +247,9 @@ class SwitchOutEvent(BattleEvent):
     """Event triggered when a Pokemon is switched out."""
     pokemon: Pokemon
     message: str
+    event_type: str = "switch_out" # Define event_type
 
     def __post_init__(self):
-        self.event_type = "switch_out"
         self.details = {
             "pokemon_instance_id": self.pokemon.instance_id,
             "message": self.message,
@@ -253,9 +260,9 @@ class SwitchInEvent(BattleEvent):
     """Event triggered when a Pokemon is switched in."""
     pokemon: Pokemon
     message: str
+    event_type: str = "switch_in" # Define event_type
 
     def __post_init__(self):
-        self.event_type = "switch_in"
         self.details = {
             "pokemon_instance_id": self.pokemon.instance_id,
             "message": self.message,
@@ -265,38 +272,108 @@ class SwitchInEvent(BattleEvent):
 class BattleMessageEvent(BattleEvent):
     """A generic event for displaying a simple battle message."""
     message: str
+    event_type: str = "battle_message" # Define event_type
 
     def __post_init__(self):
-        self.event_type = "battle_message"
         self.details = {
             "message": self.message,
         }
 
 @dataclass
 class ConfusionDamageEvent(BattleEvent):
-    """Event indicating a confused Pokemon hit itself."""
+    """
+    表示宝可梦因混乱而自伤的事件。
+    """
     pokemon: Pokemon
-    base_power: int # Base power for confusion self-damage
+    damage: int
+    old_hp: int
+    new_hp: int
+    event_type: str = "confusion_damage" # Define event_type
 
     def __post_init__(self):
-        self.event_type = "confusion_damage"
-        self.details['pokemon'] = self.pokemon.nickname
-        self.details['base_power'] = self.base_power
+        self.details = {
+            "pokemon": self.pokemon.to_dict() if self.pokemon else None,
+            "damage": self.damage,
+            "old_hp": self.old_hp,
+            "new_hp": self.new_hp
+        }
+
+@dataclass
+class FlinchEvent(BattleEvent):
+    """
+    表示宝可梦畏缩的事件。
+    """
+    def __init__(self, pokemon: Pokemon):
+        super().__init__(event_type="flinch")
+        self.pokemon = pokemon
+        
+    def to_dict(self) -> Dict[str, Any]:
+        base_dict = super().to_dict()
+        base_dict.update({
+            "pokemon": self.pokemon.to_dict() if self.pokemon else None
+        })
+        return base_dict
+
+@dataclass
+class VolatileStatusAppliedEvent(BattleEvent):
+    """表示宝可梦获得临时战斗状态的事件。"""
+    pokemon: Pokemon
+    status_type: str
+    turns: Optional[int]
+    message: str
+    event_type: str = "volatile_status_applied"
+
+    def __post_init__(self):
+        self.details = {
+            "pokemon_instance_id": self.pokemon.instance_id,
+            "status_type": self.status_type,
+            "turns": self.turns,
+            "message": self.message,
+        }
+
+@dataclass
+class VolatileStatusRemovedEvent(BattleEvent):
+    """表示宝可梦临时战斗状态被移除的事件。"""
+    pokemon: Pokemon
+    status_type: str
+    message: str
+    event_type: str = "volatile_status_removed"
+
+    def __post_init__(self):
+        self.details = {
+            "pokemon_instance_id": self.pokemon.instance_id,
+            "status_type": self.status_type,
+            "message": self.message,
+        }
+
+@dataclass
+class VolatileStatusTriggeredEvent(BattleEvent):
+    """表示宝可梦临时战斗状态触发效果的事件。"""
+    pokemon: Pokemon
+    status_type: str
+    effect_description: str
+    message: str
+    event_type: str = "volatile_status_triggered"
+
+    def __post_init__(self):
+        self.details = {
+            "pokemon_instance_id": self.pokemon.instance_id,
+            "status_type": self.status_type,
+            "effect_description": self.effect_description,
+            "message": self.message,
+        }
 
 # TODO: Add other battle event types here (S1 refinement)
-# TODO: Add events for healing, status effect application/removal, volatile status changes, etc. (S1 refinement)
-# TODO: Add events for volatile status changes (e.g., confusion, flinch) (S1 refinement)
+# TODO: Add events for healing, status effect application/removal, etc. (S1 refinement)
 # TODO: Add events for field effects (weather, terrain) (S1 refinement)
 # TODO: Add events for forced switches (e.g., from moves like Roar) (S1 refinement)
 # TODO: Add events for item trigger effects (S1 refinement)
-# TODO: Add events for ability changes (e.g., Gastro Acid, Simple Beam) (S1 refinement)
 # TODO: Add events for critical hits, type effectiveness messages (S1 refinement)
 # TODO: Add events for move miss/hit (S1 refinement)
 # TODO: Add events for stat stage change messages (S1 refinement)
 # TODO: Add events for status condition messages (S1 refinement)
 # TODO: Add events for battle start/end messages (S1 refinement)
 # TODO: Add events for turn start/end messages (S1 refinement)
-# TODO: Add events for switch in/out messages (S1 refinement)
 # TODO: Add events for item consumption (S1 refinement)
 # TODO: Add events for gaining experience (S1 refinement)
 # TODO: Add events for learning skills (S1 refinement)

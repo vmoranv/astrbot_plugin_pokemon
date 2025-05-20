@@ -8,6 +8,7 @@ from backend.models.ability import Ability
 from backend.models.status_effect import StatusEffect # Import StatusEffect model
 from backend.utils.logger import get_logger
 import os
+import pandas as pd
 
 logger = get_logger(__name__)
 
@@ -204,6 +205,8 @@ class MetadataRepository:
         self._abilities: Optional[Dict[int, Ability]] = None # Add abilities dictionary
         self._status_effects: Optional[Dict[int, StatusEffect]] = None # Add status effects dictionary
         self._field_effects: Optional[Dict[str, Any]] = None # Add field effects dictionary
+        self._pokemon_species_data: Optional[Dict[int, Dict[str, Any]]] = None
+        self._pokemon_evolutions_data: Optional[List[Dict[str, Any]]] = None
 
     async def load_all(self):
         """Loads all metadata asynchronously."""
@@ -273,5 +276,75 @@ class MetadataRepository:
 
         return False
 
+    async def get_pokemon_species_by_id(self, race_id: int) -> Optional[Dict[str, Any]]:
+        """获取指定 race_id 的宝可梦种族数据"""
+        if not self._pokemon_species_data:
+            await self.load_pokemon_species()
+        
+        species_info = self._pokemon_species_data.get(race_id)
+        if species_info:
+            # 确保返回的是字典的副本，以防外部修改
+            return dict(species_info)
+        logger.warning(f"未找到 Race ID 为 {race_id} 的宝可梦种族数据。")
+        return None
+
+    async def get_evolution_data_for_pokemon(self, current_race_id: int) -> List[Dict[str, Any]]:
+        """
+        获取指定 current_race_id 的宝可梦所有可能的直接进化路径。
+        """
+        if not self._pokemon_evolutions_data:
+            await self.load_pokemon_evolutions() # 确保进化数据已加载
+        
+        evolutions = []
+        # self._pokemon_evolutions_data 应该是一个列表，每个元素是一个包含进化信息的字典
+        # 例如: [{'evolution_id': 1, 'current_race_id': 1, 'evolved_race_id': 2, 'evolution_trigger': 'level_up', 'trigger_value': '16'}, ...]
+        for evo_data in self._pokemon_evolutions_data:
+            if evo_data.get("current_race_id") == current_race_id:
+                evolutions.append(dict(evo_data)) # 返回副本
+        
+        if not evolutions:
+            logger.debug(f"未找到 Race ID {current_race_id} 的进化数据。")
+        return evolutions
+
+    async def load_pokemon_evolutions(self):
+        """从 CSV 加载宝可梦进化数据"""
+        if self._pokemon_evolutions_data is None:
+            self._pokemon_evolutions_data = []
+            try:
+                # 假设 CSV 文件名为 pokemon_evolutions.csv
+                # 列: evolution_id,current_race_id,evolved_race_id,evolution_trigger,trigger_value,[other_conditions...]
+                evolutions_df = await self._load_csv_data('pokemon_evolutions.csv')
+                if evolutions_df is not None:
+                    for _, row in evolutions_df.iterrows():
+                        evo_dict = row.to_dict()
+                        # 类型转换
+                        for key in ['evolution_id', 'current_race_id', 'evolved_race_id']:
+                            if key in evo_dict and pd.notna(evo_dict[key]):
+                                try:
+                                    evo_dict[key] = int(evo_dict[key])
+                                except ValueError:
+                                    logger.warning(f"在 pokemon_evolutions.csv 中，行 {_ + 2} 的 {key} 值 '{evo_dict[key]}' 不是有效整数。")
+                                    # 根据需要决定是否跳过此行或使用默认值
+                        
+                        # trigger_value 可能不是数字 (例如道具名称)，所以保持为字符串，由 EvolutionHandler 解析
+                        self._pokemon_evolutions_data.append(evo_dict)
+                    logger.info(f"成功加载 {len(self._pokemon_evolutions_data)} 条宝可梦进化数据。")
+                else:
+                    logger.error("未能加载宝可梦进化数据 (pokemon_evolutions.csv 可能不存在或为空)。")
+            except Exception as e:
+                logger.error(f"加载宝可梦进化数据时出错: {e}", exc_info=True)
+                self._pokemon_evolutions_data = [] # 出错时重置，避免使用部分加载的数据
+
+    async def get_ability_by_id(self, ability_id: int) -> Optional[Ability]:
+        """通过ID获取特性对象"""
+        if not self._abilities:
+            await self.load_abilities()
+        
+        ability_info = self._abilities.get(ability_id)
+        if ability_info:
+            # 假设 ability_info 是一个包含 Ability 模型所需所有字段的字典
+            return Ability(**ability_info)
+        logger.warning(f"未找到 ID 为 {ability_id} 的特性数据。")
+        return None
 
     # TODO: Add methods to get all skills, races, etc. if needed (S30 refinement) 
