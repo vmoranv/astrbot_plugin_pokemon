@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 from backend.models.pokemon import Pokemon # Import Pokemon model
 from backend.models.skill import Skill # Import Skill model
 from backend.models.status_effect import StatusEffect # Import StatusEffect model
@@ -363,20 +363,272 @@ class VolatileStatusTriggeredEvent(BattleEvent):
             "message": self.message,
         }
 
-# TODO: Add other battle event types here (S1 refinement)
-# TODO: Add events for healing, status effect application/removal, etc. (S1 refinement)
-# TODO: Add events for field effects (weather, terrain) (S1 refinement)
-# TODO: Add events for forced switches (e.g., from moves like Roar) (S1 refinement)
-# TODO: Add events for item trigger effects (S1 refinement)
-# TODO: Add events for critical hits, type effectiveness messages (S1 refinement)
-# TODO: Add events for move miss/hit (S1 refinement)
-# TODO: Add events for stat stage change messages (S1 refinement)
-# TODO: Add events for status condition messages (S1 refinement)
-# TODO: Add events for battle start/end messages (S1 refinement)
-# TODO: Add events for turn start/end messages (S1 refinement)
-# TODO: Add events for item consumption (S1 refinement)
-# TODO: Add events for gaining experience (S1 refinement)
-# TODO: Add events for learning skills (S1 refinement)
-# TODO: Add events for evolution (S1 refinement)
-# TODO: Add events for catch attempts and success/failure (S1 refinement)
-# TODO: Add events for run attempts and success/failure (S1 refinement) 
+@dataclass
+class FieldEffectAppliedEvent(BattleEvent):
+    """表示场地效果被应用的事件。"""
+    effect_id: int
+    effect_name: str
+    effect_type: str  # "weather" 或 "terrain"
+    duration: int
+    message: str
+    event_type: str = "field_effect_applied"
+
+    def __post_init__(self):
+        self.details = {
+            "effect_id": self.effect_id,
+            "effect_name": self.effect_name,
+            "effect_type": self.effect_type,
+            "duration": self.duration,
+            "message": self.message,
+        }
+
+@dataclass
+class FieldEffectRemovedEvent(BattleEvent):
+    """表示场地效果结束的事件。"""
+    effect_id: int
+    effect_name: str
+    effect_type: str  # "weather" 或 "terrain"
+    message: str
+    event_type: str = "field_effect_removed"
+
+    def __post_init__(self):
+        self.details = {
+            "effect_id": self.effect_id,
+            "effect_name": self.effect_name,
+            "effect_type": self.effect_type,
+            "message": self.message,
+        }
+
+@dataclass
+class FieldEffectDamageEvent(BattleEvent):
+    """表示场地效果造成伤害的事件。"""
+    effect_id: int
+    effect_name: str
+    pokemon_instance_id: int
+    pokemon_name: str
+    damage: int
+    message: str
+    event_type: str = "field_effect_damage"
+
+    def __post_init__(self):
+        self.details = {
+            "effect_id": self.effect_id,
+            "effect_name": self.effect_name,
+            "pokemon_instance_id": self.pokemon_instance_id,
+            "pokemon_name": self.pokemon_name,
+            "damage": self.damage,
+            "message": self.message,
+        }
+
+@dataclass
+class ItemEffectTriggeredEvent(BattleEvent):
+    """表示道具效果被触发的事件。"""
+    item_id: int
+    item_name: str
+    holder_instance_id: int
+    holder_name: str
+    effect_description: str
+    message: str
+    event_type: str = "item_effect_triggered"
+
+    def __post_init__(self):
+        self.details = {
+            "item_id": self.item_id,
+            "item_name": self.item_name,
+            "holder_instance_id": self.holder_instance_id,
+            "holder_name": self.holder_name,
+            "effect_description": self.effect_description,
+            "message": self.message,
+        }
+
+@dataclass
+class ItemConsumedEvent(BattleEvent):
+    """表示道具被消耗的事件。"""
+    item_id: int
+    item_name: str
+    user_id: str  # 玩家ID或宝可梦ID
+    user_name: str
+    message: str
+    event_type: str = "item_consumed"
+
+    def __post_init__(self):
+        self.details = {
+            "item_id": self.item_id,
+            "item_name": self.item_name,
+            "user_id": self.user_id,
+            "user_name": self.user_name,
+            "message": self.message,
+        }
+
+@dataclass
+class CriticalHitEvent(BattleEvent):
+    """表示暴击的事件。"""
+    attacker_instance_id: int
+    attacker_name: str
+    defender_instance_id: int
+    defender_name: str
+    skill_id: int
+    skill_name: str
+    message: str
+    event_type: str = "critical_hit"
+
+    def __post_init__(self):
+        self.details = {
+            "attacker_instance_id": self.attacker_instance_id,
+            "attacker_name": self.attacker_name,
+            "defender_instance_id": self.defender_instance_id,
+            "defender_name": self.defender_name,
+            "skill_id": self.skill_id,
+            "skill_name": self.skill_name,
+            "message": self.message,
+        }
+
+@dataclass
+class TypeEffectivenessEvent(BattleEvent):
+    """表示属性相克效果的事件。"""
+    attacker_instance_id: int
+    attacker_name: str
+    defender_instance_id: int
+    defender_name: str
+    skill_id: int
+    skill_name: str
+    effectiveness: float  # 0.5, 1.0, 2.0 等
+    message: str
+    event_type: str = "type_effectiveness"
+
+    def __post_init__(self):
+        self.details = {
+            "attacker_instance_id": self.attacker_instance_id,
+            "attacker_name": self.attacker_name,
+            "defender_instance_id": self.defender_instance_id,
+            "defender_name": self.defender_name,
+            "skill_id": self.skill_id,
+            "skill_name": self.skill_name,
+            "effectiveness": self.effectiveness,
+            "message": self.message,
+        }
+
+@dataclass
+class SkillHitEvent(BattleEvent):
+    """表示技能命中的事件。"""
+    attacker_instance_id: int
+    attacker_name: str
+    defender_instance_id: int
+    defender_name: str
+    skill_id: int
+    skill_name: str
+    message: str
+    event_type: str = "skill_hit"
+
+    def __post_init__(self):
+        self.details = {
+            "attacker_instance_id": self.attacker_instance_id,
+            "attacker_name": self.attacker_name,
+            "defender_instance_id": self.defender_instance_id,
+            "defender_name": self.defender_name,
+            "skill_id": self.skill_id,
+            "skill_name": self.skill_name,
+            "message": self.message,
+        }
+
+@dataclass
+class StatusConditionMessageEvent(BattleEvent):
+    """表示状态条件相关消息的事件。"""
+    pokemon_instance_id: int
+    pokemon_name: str
+    status_id: int
+    status_name: str
+    effect_description: str
+    message: str
+    event_type: str = "status_condition_message"
+
+    def __post_init__(self):
+        self.details = {
+            "pokemon_instance_id": self.pokemon_instance_id,
+            "pokemon_name": self.pokemon_name,
+            "status_id": self.status_id,
+            "status_name": self.status_name,
+            "effect_description": self.effect_description,
+            "message": self.message,
+        }
+
+@dataclass
+class BattleStartEvent(BattleEvent):
+    """表示战斗开始的事件。"""
+    player_id: str
+    opponent_type: str  # "wild", "trainer", "gym_leader" 等
+    opponent_id: Optional[str] = None  # 如果是训练师战斗
+    message: str
+    event_type: str = "battle_start"
+
+    def __post_init__(self):
+        self.details = {
+            "player_id": self.player_id,
+            "opponent_type": self.opponent_type,
+            "opponent_id": self.opponent_id,
+            "message": self.message,
+        }
+
+@dataclass
+class BattleEndEvent(BattleEvent):
+    """表示战斗结束的事件。"""
+    player_id: str
+    result: str  # "win", "loss", "draw", "escape" 等
+    reward_exp: int = 0
+    reward_money: int = 0
+    message: str
+    event_type: str = "battle_end"
+
+    def __post_init__(self):
+        self.details = {
+            "player_id": self.player_id,
+            "result": self.result,
+            "reward_exp": self.reward_exp,
+            "reward_money": self.reward_money,
+            "message": self.message,
+        }
+
+@dataclass
+class TurnStartEvent(BattleEvent):
+    """表示回合开始的事件。"""
+    turn_number: int
+    message: str
+    event_type: str = "turn_start"
+
+    def __post_init__(self):
+        self.details = {
+            "turn_number": self.turn_number,
+            "message": self.message,
+        }
+
+@dataclass
+class TurnEndEvent(BattleEvent):
+    """表示回合结束的事件。"""
+    turn_number: int
+    message: str
+    event_type: str = "turn_end"
+
+    def __post_init__(self):
+        self.details = {
+            "turn_number": self.turn_number,
+            "message": self.message,
+        }
+
+@dataclass
+class SkillLearnedEvent(BattleEvent):
+    """表示宝可梦学习新技能的事件。"""
+    pokemon_instance_id: int
+    pokemon_name: str
+    skill_id: int
+    skill_name: str
+    message: str
+    event_type: str = "skill_learned"
+
+    def __post_init__(self):
+        self.details = {
+            "pokemon_instance_id": self.pokemon_instance_id,
+            "pokemon_name": self.pokemon_name,
+            "skill_id": self.skill_id,
+            "skill_name": self.skill_name,
+            "message": self.message,
+        }

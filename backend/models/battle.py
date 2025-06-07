@@ -4,7 +4,7 @@ import uuid # Using uuid for unique battle IDs
 import datetime
 
 # Assuming Pokemon model is defined in backend.models.pokemon
-# from .pokemon import Pokemon
+from .pokemon import Pokemon
 
 @dataclass
 class Battle:

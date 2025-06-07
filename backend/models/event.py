@@ -264,4 +264,22 @@ class ExpGainEvent(BattleEvent): # 或者可以是 Game World Event
     message: str # 覆盖基类 message，或让基类 message 为空
     event_type: str = "exp_gain"
 
+@dataclass
+class SkillReplacementRequiredEvent(Event):
+    """当宝可梦学习新技能但技能已满需要替换时触发的事件。"""
+    pokemon_instance_id: int
+    pokemon_name: str
+    new_skill_id: int
+    new_skill_name: str
+    current_skills: List[Dict[str, Any]]  # 当前技能列表，用于UI显示供玩家选择
+    message: str
+    event_type: str = "skill_replacement_required"
+
+@dataclass
+class WildPokemonFledEvent(BattleEvent):
+    """野生宝可梦逃跑的事件。"""
+    pokemon_instance_id: int
+    message: str
+    event_type: str = "wild_pokemon_fled"
+
 # ... 可以根据需要添加更多特定事件 ... 

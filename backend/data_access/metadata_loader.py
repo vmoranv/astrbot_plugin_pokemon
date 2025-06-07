@@ -6,9 +6,12 @@ from backend.models.race import Race, LearnableSkill
 from backend.models.item import Item
 from backend.models.ability import Ability
 from backend.models.status_effect import StatusEffect # Import StatusEffect model
+from backend.models.field_effect import FieldEffect
 from backend.utils.logger import get_logger
 import os
 import pandas as pd
+import aiosqlite
+import json
 
 logger = get_logger(__name__)
 
@@ -133,8 +136,17 @@ async def load_items(file_path: str = os.path.join(DATA_DIR, 'items.csv')) -> Di
                     item_id=item_id,
                     name=row['item_name'],
                     description=row.get('description'),
-                    status_immunities=status_immunities, # Load status immunities
-                    # TODO: Add other item properties like effects, consumable, etc. (S123 refinement)
+                    status_immunities=status_immunities,
+                    item_type=row.get('item_type', 'consumable'),  # 道具类型：消耗品、装备等
+                    price=int(row.get('price', 0)),  # 商店价格
+                    effect_type=row.get('effect_type'),  # 效果类型
+                    effect_value=int(row.get('effect_value', 0)),  # 效果值（如回复量）
+                    target_type=row.get('target_type', 'single'),  # 目标类型：单体、全体
+                    battle_only=row.get('battle_only', '0') == '1',  # 是否仅战斗中使用
+                    is_key_item=row.get('is_key_item', '0') == '1',  # 是否为关键道具
+                    can_be_sold=row.get('can_be_sold', '1') == '1',  # 是否可出售
+                    use_effect=row.get('use_effect'),  # 使用效果
+                    sprite_name=row.get('sprite_name')  # 精灵图名称
                 )
         logger.info(f"Loaded {len(items)} items.")
     except FileNotFoundError:
@@ -156,8 +168,15 @@ async def load_abilities(file_path: str = os.path.join(DATA_DIR, 'abilities.csv'
                     ability_id=ability_id,
                     name=row['ability_name'],
                     description=row.get('description'),
-                    status_immunities=status_immunities, # Load status immunities
-                    # TODO: Add other ability properties like effects, trigger conditions, etc. (S122 refinement)
+                    status_immunities=status_immunities,
+                    trigger_condition=row.get('trigger_condition'),  # 触发条件：被攻击时、行动前等
+                    trigger_chance=float(row.get('trigger_chance', 100)) / 100.0,  # 触发概率
+                    effect_type=row.get('effect_type'),  # 效果类型
+                    effect_value=int(row.get('effect_value', 0)),  # 效果值
+                    is_passive=row.get('is_passive', '1') == '1',  # 是否为被动能力
+                    priority=int(row.get('priority', 0)),  # 触发优先级
+                    can_be_nullified=row.get('can_be_nullified', '1') == '1',  # 是否可被无效化
+                    is_hidden=row.get('is_hidden', '0') == '1'  # 是否为隐藏特性
                 )
         logger.info(f"Loaded {len(abilities)} abilities.")
     except FileNotFoundError:
@@ -180,7 +199,16 @@ async def load_status_effects(file_path: str = os.path.join(DATA_DIR, 'status_ef
                     effect_type=row['effect_type'],
                     logic_key=row['logic_key'],
                     description=row.get('description'),
-                    # TODO: Add other status effect properties like duration, effects, etc. (S125 refinement)
+                    duration=int(row.get('duration', -1)),  # 持续回合数，-1表示直到战斗结束
+                    is_volatile=row.get('is_volatile', '0') == '1',  # 是否为易失性状态（战斗后自动消失）
+                    can_be_cured=row.get('can_be_cured', '1') == '1',  # 是否可被治愈
+                    can_act=row.get('can_act', '1') == '1',  # 是否可以行动
+                    effect_chance=float(row.get('effect_chance', 100)) / 100.0,  # 效果触发概率
+                    stat_modifier=json.loads(row.get('stat_modifier', '{}')),  # 能力修正，JSON格式
+                    damage_per_turn=int(row.get('damage_per_turn', 0)),  # 每回合伤害
+                    heal_per_turn=int(row.get('heal_per_turn', 0)),  # 每回合恢复
+                    cure_chance_per_turn=float(row.get('cure_chance_per_turn', 0)) / 100.0,  # 每回合自愈概率
+                    animation_key=row.get('animation_key')  # 动画效果标识
                 )
         logger.info(f"Loaded {len(status_effects)} status effects.")
     except FileNotFoundError:
@@ -189,9 +217,37 @@ async def load_status_effects(file_path: str = os.path.join(DATA_DIR, 'status_ef
         logger.error(f"Error loading status effects: {e}")
     return status_effects
 
-# TODO: Add loading for field effects (weather, terrain) (S126 refinement)
-# async def load_field_effects(...):
-#      pass
+async def load_field_effects(file_path: str = os.path.join(DATA_DIR, 'field_effects.csv')) -> Dict[int, FieldEffect]:
+    """加载场地效果数据（包括天气和地形）。"""
+    field_effects: Dict[int, FieldEffect] = {}
+    try:
+        with open(file_path, mode='r', encoding='utf-8') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                effect_id = int(row['effect_id'])
+                affected_types = [int(t) for t in row['affected_types'].split(',') if t] if row.get('affected_types') else []
+                stat_modifiers = json.loads(row.get('stat_modifiers', '{}'))
+                
+                field_effects[effect_id] = FieldEffect(
+                    effect_id=effect_id,
+                    name=row['name'],
+                    effect_type=row['effect_type'],  # weather或terrain
+                    description=row.get('description'),
+                    duration=int(row.get('duration', 5)),  # 默认持续5回合
+                    affected_types=affected_types,  # 受影响的宝可梦属性
+                    damage_modifier=float(row.get('damage_modifier', 1.0)),  # 伤害修正
+                    stat_modifiers=stat_modifiers,  # 能力修正，JSON格式
+                    special_effect=row.get('special_effect'),  # 特殊效果，如冰冻概率提高
+                    animation_key=row.get('animation_key'),  # 动画效果标识
+                    is_natural=row.get('is_natural', '0') == '1',  # 是否为自然生成（非技能引起）
+                    compatible_effects=[int(e) for e in row.get('compatible_effects', '').split(',') if e]  # 兼容的其他场地效果
+                )
+        logger.info(f"Loaded {len(field_effects)} field effects.")
+    except FileNotFoundError:
+        logger.error(f"Field effects CSV file not found at {file_path}")
+    except Exception as e:
+        logger.error(f"Error loading field effects: {e}")
+    return field_effects
 
 class MetadataRepository:
     """
@@ -204,7 +260,7 @@ class MetadataRepository:
         self._items: Optional[Dict[int, Item]] = None # Add items dictionary
         self._abilities: Optional[Dict[int, Ability]] = None # Add abilities dictionary
         self._status_effects: Optional[Dict[int, StatusEffect]] = None # Add status effects dictionary
-        self._field_effects: Optional[Dict[str, Any]] = None # Add field effects dictionary
+        self._field_effects: Optional[Dict[int, FieldEffect]] = None # Add field effects dictionary
         self._pokemon_species_data: Optional[Dict[int, Dict[str, Any]]] = None
         self._pokemon_evolutions_data: Optional[List[Dict[str, Any]]] = None
 
@@ -217,7 +273,7 @@ class MetadataRepository:
         self._items = await load_items() # Load items
         self._abilities = await load_abilities() # Load abilities
         self._status_effects = await load_status_effects() # Load status effects
-        # TODO: Load field effects (S126 refinement)
+        self._field_effects = await load_field_effects() # Load field effects
         logger.info("All metadata loaded.")
 
     def get_skill(self, skill_id: int) -> Optional[Skill]:
@@ -252,9 +308,9 @@ class MetadataRepository:
                     return status_effect
         return None
 
-    def get_field_effect(self, effect_logic_key: str) -> Optional[Dict[str, Any]]:
-        """Gets a field effect (terrain/weather) by its logic key."""
-        return self._field_effects.get(effect_logic_key) if self._field_effects else None
+    def get_field_effect(self, effect_id: int) -> Optional[FieldEffect]:
+        """Gets a field effect (weather/terrain) by its ID."""
+        return self._field_effects.get(effect_id) if self._field_effects else None
 
     def check_status_immunity_by_ability_or_item(self, pokemon: Pokemon, status_logic_key: str) -> bool:
         """
@@ -347,4 +403,157 @@ class MetadataRepository:
         logger.warning(f"未找到 ID 为 {ability_id} 的特性数据。")
         return None
 
-    # TODO: Add methods to get all skills, races, etc. if needed (S30 refinement) 
+    # TODO: Add methods to get all skills, races, etc. if needed (S30 refinement)
+
+    async def get_skills_learnable_at_level(self, race_id: int, level: int) -> List[Dict[str, Any]]:
+        """
+        获取宝可梦种族在特定等级可学习的技能。
+        
+        Args:
+            race_id: 宝可梦种族ID
+            level: 等级
+            
+        Returns:
+            List[Dict[str, Any]]: 可学习技能的列表
+        """
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute(
+                    """
+                    SELECT s.* 
+                    FROM pokemon_skills ps
+                    JOIN skills s ON ps.skill_id = s.skill_id
+                    WHERE ps.race_id = ? AND ps.learn_level = ?
+                    """,
+                    (race_id, level)
+                )
+                
+                skills = await cursor.fetchall()
+                return [dict(skill) for skill in skills]
+        except Exception as e:
+            logger.error(f"获取可学习技能失败: {e}", exc_info=True)
+            return []
+
+    async def get_skills_learnable_until_level(self, race_id: int, max_level: int) -> List[Dict[str, Any]]:
+        """
+        获取宝可梦种族在指定等级之前（含）可学习的所有技能。
+        
+        Args:
+            race_id: 宝可梦种族ID
+            max_level: 最大等级
+            
+        Returns:
+            List[Dict[str, Any]]: 可学习技能的列表
+        """
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute(
+                    """
+                    SELECT s.*, ps.learn_level 
+                    FROM pokemon_skills ps
+                    JOIN skills s ON ps.skill_id = s.skill_id
+                    WHERE ps.race_id = ? AND ps.learn_level <= ?
+                    ORDER BY ps.learn_level DESC
+                    """,
+                    (race_id, max_level)
+                )
+                
+                skills = await cursor.fetchall()
+                return [dict(skill) for skill in skills]
+        except Exception as e:
+            logger.error(f"获取可学习技能失败: {e}", exc_info=True)
+            return []
+
+    async def get_pokemons_by_location(self, location_id: str) -> List[Dict[str, Any]]:
+        """
+        获取特定位置可遇到的宝可梦列表。
+        
+        Args:
+            location_id: 位置ID
+            
+        Returns:
+            List[Dict[str, Any]]: 可遇到的宝可梦列表，包含遇到概率
+        """
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute(
+                    """
+                    SELECT p.*, l.encounter_rate 
+                    FROM location_pokemons l
+                    JOIN pokemon_races p ON l.race_id = p.race_id
+                    WHERE l.location_id = ?
+                    """,
+                    (location_id,)
+                )
+                
+                pokemons = await cursor.fetchall()
+                return [dict(pokemon) for pokemon in pokemons]
+        except Exception as e:
+            logger.error(f"获取位置宝可梦列表失败: {e}", exc_info=True)
+            return []
+
+    async def get_all_skills(self) -> Dict[int, Skill]:
+        """获取所有技能数据。"""
+        if not self._skills:
+            await self.load_skills()
+        return self._skills
+
+    async def get_all_races(self) -> Dict[int, Race]:
+        """获取所有宝可梦种族数据。"""
+        if not self._races:
+            await self.load_races()
+        return self._races
+
+    async def get_all_items(self) -> Dict[int, Item]:
+        """获取所有道具数据。"""
+        if not self._items:
+            await self.load_items()
+        return self._items
+
+    async def get_all_abilities(self) -> Dict[int, Ability]:
+        """获取所有特性数据。"""
+        if not self._abilities:
+            await self.load_abilities()
+        return self._abilities
+
+    async def get_all_status_effects(self) -> Dict[int, StatusEffect]:
+        """获取所有状态效果数据。"""
+        if not self._status_effects:
+            await self.load_status_effects()
+        return self._status_effects
+
+    async def get_all_field_effects(self) -> Dict[int, FieldEffect]:
+        """获取所有场地效果数据（包括天气和地形）。"""
+        if not self._field_effects:
+            await self.load_field_effects()
+        return self._field_effects
+
+    async def get_evolutions_for_race(self, race_id: int) -> List[Dict[str, Any]]:
+        """
+        获取特定宝可梦种族的所有可能进化路径。
+        
+        Args:
+            race_id: 宝可梦种族ID
+            
+        Returns:
+            List[Dict[str, Any]]: 进化数据列表
+        """
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute(
+                    """
+                    SELECT * FROM pokemon_evolutions
+                    WHERE base_race_id = ?
+                    """,
+                    (race_id,)
+                )
+                
+                evolutions = await cursor.fetchall()
+                return [dict(evolution) for evolution in evolutions]
+        except Exception as e:
+            logger.error(f"获取宝可梦进化数据失败: {e}", exc_info=True)
+            return []

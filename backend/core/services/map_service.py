@@ -1,6 +1,5 @@
 from typing import Optional, Dict, Any
 from backend.models.player import Player
-# from backend.data_access.repositories.metadata_repository import MetadataRepository # 移除 MetadataRepository
 from backend.data_access.repositories.map_repository import MapRepository # 导入 MapRepository
 from backend.data_access.repositories.player_repository import PlayerRepository # 导入 PlayerRepository (假设存在)
 from backend.data_access.repositories.metadata_repository import MetadataRepository
@@ -14,7 +13,6 @@ class MapService:
     """Service for Map related business logic."""
 
     def __init__(self):
-        # self.metadata_repo = MetadataRepository() # 移除 MetadataRepository 实例化
         self.map_repo = MapRepository() # 实例化 MapRepository
         self.player_repo = PlayerRepository() # 实例化 PlayerRepository (假设存在)
         self.metadata_repo = MetadataRepository()
@@ -24,25 +22,19 @@ class MapService:
         """
         Retrieves map data by map ID.
         """
-        # return await self.metadata_repo.get_map_by_id(map_id) # 修改为使用 MapRepository
-        # try: # 移除这里的 try-except，让 MapRepository 处理查找不到的情况
-        #     map_id_int = int(map_id) # 假设 map_id 是可以转换为整数的字符串
         return await self.map_repo.get_by_map_id(map_id) # 直接传递 int 类型的 map_id
-        # except ValueError:
-        #     logger.error(f"Invalid map ID format: {map_id}")
-        #     return None
+
 
     async def get_location_name(self, location_id: str) -> str:
         """
         Retrieves the name of a location from metadata.
-        Returns the location_id if name not found.
         """
         location_data = await self.metadata_repo.get_location_data(location_id)
         if location_data and 'name' in location_data:
             return location_data['name']
         else:
             logger.warning(f"Location name not found for location_id: {location_id}. Using ID as name.")
-            return location_id # Fallback to ID if name not found
+            return location_id
 
     async def move_player_to_location(self, player_id: str, location_id: str) -> str:
         """

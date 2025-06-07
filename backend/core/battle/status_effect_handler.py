@@ -1,6 +1,8 @@
 import random # Import random for potential volatile status checks (e.g., confusion hit chance)
 import math # Import math for confusion damage calculation
-from typing import List, Dict, Any, Optional, Tuple, Callable
+from typing import List, Dict, Any, Optional, Tuple, Callable, TYPE_CHECKING
+if TYPE_CHECKING:
+    from backend.models.battle import Battle
 from backend.models.pokemon import Pokemon
 from backend.models.status_effect import StatusEffect
 from backend.core.battle.events import (
@@ -53,44 +55,100 @@ class StatusEffectHandler:
 
         # Check if the Pokemon already has a major status effect
         if pokemon.major_status_effect:
-            message = f"{pokemon.nickname} 已经处于 {pokemon.major_status_effect.name} 状态了！" # TODO: Refine message (S133 refinement)
+            message = f"{pokemon.nickname}已经处于{pokemon.major_status_effect.name}状态，无法再被施加新状态！"
             events.append(BattleMessageEvent(message=message))
             logger.debug(f"Pokemon {pokemon.nickname} already has a major status effect: {pokemon.major_status_effect.name}")
             return events
 
         # Check for immunity based on item (S132 refinement - Item first)
         if self._metadata_repo.is_immune_by_item(pokemon, status_effect.logic_key):
-             message = f"{pokemon.nickname} 的 {pokemon.held_item.name} 使其不会{status_effect.name}！" if pokemon.held_item else f"{pokemon.nickname} 不会{status_effect.name}！" # TODO: Refine message (S133 refinement)
+             message = f"{pokemon.nickname}的{pokemon.held_item.name}使其免疫{status_effect.name}状态！" if pokemon.held_item else f"{pokemon.nickname}免疫{status_effect.name}状态！"
              events.append(BattleMessageEvent(message=message))
              logger.debug(f"Pokemon {pokemon.nickname} is immune to {status_effect.name} due to held item.")
              return events
 
         # Check for immunity based on ability (S132 refinement - Ability second)
         if self._metadata_repo.is_immune_by_ability(pokemon, status_effect.logic_key):
-             message = f"{pokemon.nickname} 的 {pokemon.ability.name} 使其不会{status_effect.name}！" if pokemon.ability else f"{pokemon.nickname} 不会{status_effect.name}！" # TODO: Refine message (S133 refinement)
+             message = f"{pokemon.nickname}的特性{pokemon.ability.name}使其免疫{status_effect.name}状态！" if pokemon.ability else f"{pokemon.nickname}免疫{status_effect.name}状态！"
              events.append(BattleMessageEvent(message=message))
              logger.debug(f"Pokemon {pokemon.nickname} is immune to {status_effect.name} due to ability.")
              return events
 
         # Check for immunity based on type (S132 refinement - Type last)
         if self._metadata_repo.is_immune_by_type(pokemon, status_effect.logic_key):
-             message = f"{pokemon.nickname} 的属性使其不会{status_effect.name}！" # TODO: Refine message (S133 refinement)
+             message = f"{pokemon.nickname}的{', '.join([t.name for t in pokemon.types])}属性使其免疫{status_effect.name}状态！"
              events.append(BattleMessageEvent(message=message))
              logger.debug(f"Pokemon {pokemon.nickname} is immune to {status_effect.name} due to type.")
              return events
 
         # If not immune and no existing major status, apply the status effect
         pokemon.major_status_effect = status_effect
-        message = f"{pokemon.nickname} {status_effect.name}了！" # TODO: Refine status message (S133 refinement)
-        events.append(StatusEffectAppliedEvent(pokemon=pokemon, status_effect=status_effect, message=message))
-        logger.info(f"Applied status effect {status_effect.name} to {pokemon.nickname}")
+        
+        # 根据状态效果类型设置合适的提示消息
+        if status_effect.logic_key == "burn":
+            message = f"{pokemon.nickname}被灼伤了！攻击力下降！"
+        elif status_effect.logic_key == "paralysis":
+            message = f"{pokemon.nickname}被麻痹了！速度下降！可能无法行动！"
+        elif status_effect.logic_key == "poison":
+            message = f"{pokemon.nickname}中毒了！将持续受到伤害！"
+        elif status_effect.logic_key == "toxic":
+            message = f"{pokemon.nickname}中了剧毒！伤害将逐渐加重！"
+        elif status_effect.logic_key == "sleep":
+            message = f"{pokemon.nickname}睡着了！无法行动！"
+        elif status_effect.logic_key == "freeze":
+            message = f"{pokemon.nickname}被冰冻了！无法行动！"
+        else:
+            message = f"{pokemon.nickname}{status_effect.name}了！"
 
-        # TODO: Add logic for specific status effect application side effects (e.g., Burn halves Attack) (S131 refinement)
-        # This might involve applying stat stage changes or other effects immediately upon application.
+        events.append(StatusEffectAppliedEvent(
+            pokemon_instance_id=pokemon.instance_id,
+            pokemon_name=pokemon.nickname,
+            status_effect_id=status_effect.status_effect_id,
+            status_effect_name=status_effect.name,
+            status_effect_logic_key=status_effect.logic_key,
+            message=message
+        ))
+        logger.debug(f"Applied {status_effect.name} to {pokemon.nickname}")
 
+        # 应用特定状态效果的副作用
+        if status_effect.logic_key == "burn":
+            # 灼伤状态减半攻击
+            stat_change_message = f"{pokemon.nickname}的攻击因灼伤而下降！"
+            # 不是直接修改属性值，而是创建一个事件通知调用者
+            burn_stat_event = StatStageChangeEvent(
+                pokemon=pokemon,
+                stat_name="attack",
+                stages=-2,  # 减少2级（相当于攻击力减半）
+                message=stat_change_message
+            )
+            events.append(burn_stat_event)
+            logger.debug(f"Applied burn side effect: Attack halved for {pokemon.nickname}")
+        elif status_effect.logic_key == "paralysis":
+            # 麻痹状态减速
+            stat_change_message = f"{pokemon.nickname}的速度因麻痹而下降！"
+            paralysis_stat_event = StatStageChangeEvent(
+                pokemon=pokemon,
+                stat_name="speed",
+                stages=-2,  # 减少2级（相当于速度减半）
+                message=stat_change_message
+            )
+            events.append(paralysis_stat_event)
+            logger.debug(f"Applied paralysis side effect: Speed halved for {pokemon.nickname}")
+        elif status_effect.logic_key == "toxic":
+            # 剧毒状态会逐渐加重伤害，需要设置一个计数器
+            pokemon.status_counters["toxic_turns"] = 1
+            logger.debug(f"Initialized toxic counter for {pokemon.nickname}")
+        elif status_effect.logic_key == "sleep":
+            message = f"{pokemon.nickname}睡着了！无法行动！"
+            events.append(BattleMessageEvent(message=message))
+            logger.debug(f"Applied sleep side effect: Pokemon cannot act this turn")
+        elif status_effect.logic_key == "freeze":
+            message = f"{pokemon.nickname}被冰冻了！无法行动！"
+            events.append(BattleMessageEvent(message=message))
+            logger.debug(f"Applied freeze side effect: Pokemon cannot act this turn")
         return events
 
-    def remove_status_effect(self, pokemon: Pokemon, status_effect_logic_key: str) -> List[BattleEvent]:
+    def remove_status_effect(self, pokemon: Pokemon, status_effect_logic_key: str = None) -> List[BattleEvent]:
         """
         Attempts to remove a major status effect from a Pokemon.
 
@@ -102,88 +160,140 @@ class StatusEffectHandler:
             A list of BattleEvent objects generated by the removal attempt.
         """
         events: List[BattleEvent] = []
-        if pokemon.major_status_effect and pokemon.major_status_effect.logic_key == status_effect_logic_key:
-            removed_status_name = pokemon.major_status_effect.name
-            pokemon.major_status_effect = None
-            message = f"{pokemon.nickname} 的 {removed_status_name} 恢复了！" # TODO: Refine message (S133 refinement)
-            events.append(StatusEffectRemovedEvent(pokemon=pokemon, status_effect_logic_key=status_effect_logic_key, message=message))
-            logger.info(f"Removed status effect {status_effect_logic_key} from {pokemon.nickname}")
-        else:
-            # Status effect not present or different
-            message = f"{pokemon.nickname} 没有 {status_effect_logic_key} 状态。" # TODO: Refine message (S133 refinement)
+        if not pokemon.major_status_effect:
+            message = f"{pokemon.nickname}并没有{status_effect_logic_key}状态。"
             events.append(BattleMessageEvent(message=message))
-            logger.debug(f"Attempted to remove {status_effect_logic_key} from {pokemon.nickname}, but it was not present.")
-
-        return events
-
-    def apply_volatile_status(self, pokemon: Pokemon, volatile_status_logic_key: str, 
-                             source: Optional[Pokemon] = None, turns: int = 3) -> List[BattleEvent]:
-        """
-        Applies a volatile status effect to a Pokemon, checking for immunities.
-
-        Args:
-            pokemon: The Pokemon to apply the volatile status effect to.
-            volatile_status_logic_key: The logic key of the volatile status effect to apply.
-            source: The source Pokemon that might be applying the status effect (optional).
-            turns: The number of turns the status effect should last (default is 3).
-
-        Returns:
-            A list of BattleEvent objects generated by the application attempt.
-        """
-        events: List[BattleEvent] = []
+            return events
         
-        # Check if the Pokemon is already affected by this volatile status
-        if volatile_status_logic_key in pokemon.volatile_status:
-            logger.debug(f"{pokemon.nickname} is already affected by {volatile_status_logic_key}.")
-            # Optionally add a message event here if needed
-            return events
-
-        # Check for immunity
-        if self._metadata_repo.is_immune_by_item(pokemon, volatile_status_logic_key):
-            item_name = pokemon.held_item.name if pokemon.held_item else "未知道具"
-            message = f"{pokemon.nickname} 的 {item_name} 使其免疫了 {volatile_status_logic_key} 状态！"
+        if status_effect_logic_key and pokemon.major_status_effect.logic_key != status_effect_logic_key:
+            message = f"{pokemon.nickname}并没有{status_effect_logic_key}状态。"
             events.append(BattleMessageEvent(message=message))
-            logger.info(f"{pokemon.nickname} is immune to {volatile_status_logic_key} due to held item {item_name}")
             return events
-            
-        if self._metadata_repo.is_immune_by_ability(pokemon, volatile_status_logic_key):
-            ability_name = pokemon.ability.name if pokemon.ability else "未知特性"
-            message = f"{pokemon.nickname} 的 {ability_name} 使其免疫了 {volatile_status_logic_key} 状态！"
-            events.append(BattleMessageEvent(message=message))
-            logger.info(f"{pokemon.nickname} is immune to {volatile_status_logic_key} due to ability {ability_name}")
-            return events
-
-        # If not immune and not already affected, apply the volatile status
-        pokemon.volatile_status.append(volatile_status_logic_key)
-        message = f"{pokemon.nickname} 陷入了 {volatile_status_logic_key} 状态！" # TODO: Refine message (S133 refinement)
-        events.append(VolatileStatusChangeEvent(pokemon=pokemon, volatile_status_logic_key=volatile_status_logic_key, is_applied=True, message=message))
-        logger.info(f"Applied volatile status {volatile_status_logic_key} to {pokemon.nickname} for {turns} turns")
-
-        # TODO: Add logic for volatile status application side effects (e.g., confusion message on application) (S130 refinement)
-
+        
+        # 保存状态名称用于消息
+        removed_status_name = pokemon.major_status_effect.name
+        
+        # 移除状态效果
+        pokemon.major_status_effect = None
+        
+        # 如果是剧毒，移除计数器
+        if status_effect_logic_key == "toxic" and "toxic_turns" in pokemon.status_counters:
+            del pokemon.status_counters["toxic_turns"]
+        
+        # 创建状态移除事件
+        message = f"{pokemon.nickname}的{removed_status_name}状态恢复了！"
+        events.append(StatusEffectRemovedEvent(
+            pokemon_instance_id=pokemon.instance_id,
+            pokemon_name=pokemon.nickname,
+            status_effect_name=removed_status_name,
+            message=message
+        ))
+        
+        logger.debug(f"Removed {removed_status_name} status from {pokemon.nickname}")
+        
         return events
 
-    def remove_volatile_status(self, pokemon: Pokemon, volatile_status_logic_key: str) -> List[BattleEvent]:
+    def apply_volatile_status(self, pokemon: Pokemon, status_key: str, turns: int = None) -> List[BattleEvent]:
         """
-        Attempts to remove a volatile status effect from a Pokemon.
+        对宝可梦应用一个易变状态效果。
 
         Args:
-            pokemon: The Pokemon to remove the volatile status effect from.
-            volatile_status_logic_key: The logic key of the volatile status effect to remove.
+            pokemon: 要应用状态效果的宝可梦
+            status_key: 易变状态的逻辑键（如"confusion", "flinch"等）
+            turns: 可选的持续回合数
 
         Returns:
-            A list of BattleEvent objects generated by the removal attempt.
+            List[BattleEvent]: 应用状态效果产生的事件列表
         """
-        events: List[BattleEvent] = []
-        if volatile_status_logic_key in pokemon.volatile_status:
-            pokemon.volatile_status.remove(volatile_status_logic_key)
-            message = f"{pokemon.nickname} 的 {volatile_status_logic_key} 状态消失了！" # TODO: Refine message (S133 refinement)
-            events.append(VolatileStatusChangeEvent(pokemon=pokemon, volatile_status_logic_key=volatile_status_logic_key, is_applied=False, message=message))
-            logger.info(f"Removed volatile status {volatile_status_logic_key} from {pokemon.nickname}")
+        events = []
+        
+        # 初始化易变状态字典（如果不存在）
+        if not hasattr(pokemon, "volatile_status") or pokemon.volatile_status is None:
+            pokemon.volatile_status = {}
+        
+        # 如果已经有这个状态，可能需要刷新或者不允许重复应用
+        if status_key in pokemon.volatile_status:
+            # 某些状态可以刷新持续时间，某些不能
+            if status_key in ["taunt", "encore", "trap"]:
+                pokemon.volatile_status[status_key]["turns_left"] = turns or pokemon.volatile_status[status_key]["turns_left"]
+                message = f"{pokemon.nickname}的{status_key}状态持续时间被刷新！"
+                events.append(BattleMessageEvent(message=message))
+                return events
+            else:
+                message = f"{pokemon.nickname}已经处于{status_key}状态！"
+                events.append(BattleMessageEvent(message=message))
+                return events
+        
+        # 添加易变状态
+        if status_key == "confusion":
+            turns = turns or random.randint(2, 5)  # 混乱持续2-5回合
+            pokemon.volatile_status["confusion"] = {"turns_left": turns}
+            message = f"{pokemon.nickname}混乱了！"
+        elif status_key == "flinch":
+            # 畏缩只持续一回合，不需要turns参数
+            pokemon.volatile_status["flinch"] = {"active": True}
+            message = f"{pokemon.nickname}畏缩了！"
+        elif status_key == "infatuation":
+            pokemon.volatile_status["infatuation"] = {"active": True, "turns_left": turns or -1}  # -1表示无限期，直到一方离场
+            message = f"{pokemon.nickname}着迷了！"
+        elif status_key == "taunt":
+            pokemon.volatile_status["taunt"] = {"turns_left": turns or 3}  # 嘲讽通常持续3回合
+            message = f"{pokemon.nickname}被嘲讽了！"
+        elif status_key == "encore":
+            pokemon.volatile_status["encore"] = {"turns_left": turns or 3, "move_id": pokemon.last_used_move_id if hasattr(pokemon, "last_used_move_id") else None}
+            message = f"{pokemon.nickname}被再来一次影响了！"
+        elif status_key == "trap":
+            pokemon.volatile_status["trap"] = {"turns_left": turns or random.randint(4, 5)}  # 束缚通常持续4-5回合
+            message = f"{pokemon.nickname}被束缚住了！"
         else:
-            logger.debug(f"Attempted to remove volatile status {volatile_status_logic_key} from {pokemon.nickname}, but it was not present.")
-            # Optionally add a message event here if needed
+            pokemon.volatile_status[status_key] = {"active": True, "turns_left": turns or 1}
+            message = f"{pokemon.nickname}受到了{status_key}状态的影响！"
+        
+        # 创建易变状态应用事件
+        events.append(VolatileStatusChangeEvent(
+            pokemon_instance_id=pokemon.instance_id,
+            pokemon_name=pokemon.nickname,
+            status_key=status_key,
+            is_applied=True,
+            message=message
+        ))
+        
+        logger.debug(f"Applied volatile status {status_key} to {pokemon.nickname}")
+        
+        return events
 
+    def remove_volatile_status(self, pokemon: Pokemon, status_key: str) -> List[BattleEvent]:
+        """
+        从宝可梦中移除一个易变状态效果。
+
+        Args:
+            pokemon: 要移除状态效果的宝可梦
+            status_key: 要移除的易变状态的逻辑键
+
+        Returns:
+            List[BattleEvent]: 移除状态效果产生的事件列表
+        """
+        events = []
+        
+        # 检查宝可梦是否有易变状态字典
+        if not hasattr(pokemon, "volatile_status") or pokemon.volatile_status is None or status_key not in pokemon.volatile_status:
+            return events
+        
+        # 移除指定的易变状态
+        del pokemon.volatile_status[status_key]
+        
+        # 创建易变状态移除事件
+        message = f"{pokemon.nickname}的{status_key}状态解除了！"
+        events.append(VolatileStatusChangeEvent(
+            pokemon_instance_id=pokemon.instance_id,
+            pokemon_name=pokemon.nickname,
+            status_key=status_key,
+            is_applied=False,
+            message=message
+        ))
+        
+        logger.debug(f"Removed volatile status {status_key} from {pokemon.nickname}")
+        
         return events
 
     def apply_stat_stage_change(self, pokemon: Pokemon, stat_type: str, stages: int) -> List[BattleEvent]:
@@ -204,14 +314,21 @@ class StatusEffectHandler:
 
         if new_stage == current_stage:
             # No change occurred (e.g., already at +6 and tried to increase)
-            message = f"{pokemon.nickname} 的 {stat_type} 没有变化！" # TODO: Refine message based on attempt vs actual change
+            message = f"{pokemon.nickname}的{stat_type}已经达到极限，无法再{'提高' if stages > 0 else '降低'}了！"
             events.append(BattleMessageEvent(message=message))
             return events
 
         pokemon.stat_stages[stat_type] = new_stage
 
-        message = f"{pokemon.nickname} 的 {stat_type} {'提高' if stages > 0 else '降低'}了！" # Basic message
-        # TODO: Refine message based on number of stages (e.g., sharply rose/fell) (S119 refinement)
+        # 根据变化的级数调整消息
+        if abs(stages) == 1:
+            change_text = "提高" if stages > 0 else "降低"
+        elif abs(stages) == 2:
+            change_text = "大幅提高" if stages > 0 else "大幅降低"
+        else:  # abs(stages) >= 3
+            change_text = "巨幅提高" if stages > 0 else "巨幅降低"
+            
+        message = f"{pokemon.nickname}的{stat_type}{change_text}了！"
 
         events.append(StatStageChangeEvent(pokemon=pokemon, stat_type=stat_type, stages_changed=stages, new_stage=new_stage, message=message))
 
@@ -426,14 +543,14 @@ class StatusEffectHandler:
             如果不能行动，event包含相应的战斗事件（如消息事件）
         """
         # 检查主要状态效果
-        if pokemon.major_status:
+        if pokemon.major_status_effect:
             # 冰冻状态：通常无法行动，但有10%的几率解冻
-            if pokemon.major_status.effect_logic_key == "frozen":
+            if pokemon.major_status_effect.effect_logic_key == "frozen":
                 # 10%的几率自然解冻
                 if random.random() < 0.1:
                     # 解除冰冻状态
-                    status = pokemon.major_status
-                    pokemon.major_status = None
+                    status = pokemon.major_status_effect
+                    pokemon.major_status_effect = None
                     message = f"{pokemon.nickname}解冻了！"
                     event = StatusEffectRemovedEvent(
                         pokemon=pokemon,
@@ -448,14 +565,14 @@ class StatusEffectHandler:
                     return False, event
                 
             # 睡眠状态：无法行动，但可能在回合结束时醒来
-            elif pokemon.major_status.effect_logic_key == "sleep":
+            elif pokemon.major_status_effect.effect_logic_key == "sleep":
                 # 处理睡眠回合减少逻辑在process_end_of_turn_major_status中
                 message = f"{pokemon.nickname}正在睡觉，无法行动！"
                 event = BattleMessageEvent(message=message)
                 return False, event
             
             # 麻痹状态：25%几率无法行动
-            elif pokemon.major_status.effect_logic_key == "paralysis":
+            elif pokemon.major_status_effect.effect_logic_key == "paralysis":
                 if random.random() < 0.25:  # 25%几率无法行动
                     message = f"{pokemon.nickname}因麻痹无法行动！"
                     event = BattleMessageEvent(message=message)
@@ -485,10 +602,10 @@ class StatusEffectHandler:
         """
         events: List[BattleEvent] = []
         
-        if not pokemon.major_status:
+        if not pokemon.major_status_effect:
             return events
         
-        status = pokemon.major_status
+        status = pokemon.major_status_effect
         
         # 处理中毒状态（扣除最大HP的1/8）
         if status.effect_logic_key == "poison":
@@ -575,7 +692,7 @@ class StatusEffectHandler:
             # 检查是否应该醒来
             if status.remaining_turns <= 0:
                 # 移除睡眠状态
-                pokemon.major_status = None
+                pokemon.major_status_effect = None
                 
                 message = f"{pokemon.nickname}醒来了！"
                 events.append(BattleMessageEvent(message=message))
@@ -614,9 +731,9 @@ class StatusEffectHandler:
             # 主要状态效果（宝可梦一次只能有一个）
             
             # 如果已经有主要状态，先移除
-            if pokemon.major_status:
-                old_status = pokemon.major_status
-                pokemon.major_status = None
+            if pokemon.major_status_effect:
+                old_status = pokemon.major_status_effect
+                pokemon.major_status_effect = None
                 
                 removal_message = self._get_status_removal_message(old_status.effect_logic_key, pokemon)
                 events.append(BattleMessageEvent(message=removal_message))
@@ -643,7 +760,7 @@ class StatusEffectHandler:
             )
             
             # 应用主要状态
-            pokemon.major_status = status
+            pokemon.major_status_effect = status
             
             # 生成应用消息和事件
             application_message = self._get_status_application_message(status_logic_key, pokemon)
@@ -708,7 +825,7 @@ class StatusEffectHandler:
             如果宝可梦免疫该状态，则返回True；否则返回False
         """
         # 已有主要状态的宝可梦不能再有其他主要状态
-        if status_logic_key in ["poison", "toxic", "burn", "paralysis", "sleep", "freeze"] and pokemon.major_status:
+        if status_logic_key in ["poison", "toxic", "burn", "paralysis", "sleep", "freeze"] and pokemon.major_status_effect:
             return True
         
         # 检查类型免疫
@@ -766,5 +883,411 @@ class StatusEffectHandler:
         # 没有发现免疫
         return False
 
-    # TODO: Add methods for removing status effects, processing end-of-turn effects, etc. (S130 refinement)
-    # TODO: Add methods for processing volatile status effects at the start/end of a turn (e.g., confusion damage, flinch check) (S130 refinement) 
+    async def process_status_end_of_turn(self, pokemon: Pokemon, battle: Optional['Battle'] = None) -> List[BattleEvent]:
+        """
+        处理宝可梦在回合结束时的状态效果，如毒素伤害、灼伤伤害等。
+
+        Args:
+            pokemon: 需要处理状态效果的宝可梦
+            battle: 可选的战斗对象，用于获取场地等信息
+
+        Returns:
+            List[BattleEvent]: 处理状态产生的事件列表
+        """
+        events = []
+        
+        if not pokemon.major_status_effect:
+            return events
+        
+        status_key = pokemon.major_status_effect.effect_logic_key
+        
+        # 处理中毒状态伤害
+        if status_key == "poison":
+            max_hp = pokemon.get_stat("hp")
+            damage = max(1, max_hp // 8)  # 每回合损失最大HP的1/8，最少1点
+            
+            # 创建伤害事件
+            message = f"{pokemon.nickname}受到了毒素伤害！"
+            poison_damage_event = DamageDealtEvent(
+                target_instance_id=pokemon.instance_id,
+                target_name=pokemon.nickname,
+                damage=damage,
+                remaining_hp=max(0, pokemon.current_hp - damage),
+                max_hp=max_hp,
+                damage_type="status",
+                effectiveness=1.0,
+                is_critical=False,
+                message=message
+            )
+            events.append(poison_damage_event)
+            logger.debug(f"Applied poison damage ({damage}) to {pokemon.nickname}")
+            
+        # 处理剧毒状态伤害（随回合增加）
+        elif status_key == "toxic":
+            if "toxic_turns" not in pokemon.status_counters:
+                pokemon.status_counters["toxic_turns"] = 1
+            
+            max_hp = pokemon.get_stat("hp")
+            toxic_turn = pokemon.status_counters["toxic_turns"]
+            # 剧毒伤害随回合增加：N/16 * 最大HP（N是回合数）
+            damage = max(1, (max_hp * toxic_turn) // 16)
+            
+            # 创建伤害事件
+            message = f"{pokemon.nickname}受到了剧毒伤害！"
+            toxic_damage_event = DamageDealtEvent(
+                target_instance_id=pokemon.instance_id,
+                target_name=pokemon.nickname,
+                damage=damage,
+                remaining_hp=max(0, pokemon.current_hp - damage),
+                max_hp=max_hp,
+                damage_type="status",
+                effectiveness=1.0,
+                is_critical=False,
+                message=message
+            )
+            events.append(toxic_damage_event)
+            
+            # 增加计数器
+            pokemon.status_counters["toxic_turns"] = min(15, toxic_turn + 1)  # 最多15回合
+            logger.debug(f"Applied toxic damage ({damage}) to {pokemon.nickname} (turn {toxic_turn})")
+        
+        # 处理灼伤状态伤害
+        elif status_key == "burn":
+            max_hp = pokemon.get_stat("hp")
+            damage = max(1, max_hp // 16)  # 每回合损失最大HP的1/16，最少1点
+            
+            # 创建伤害事件
+            message = f"{pokemon.nickname}受到了灼伤伤害！"
+            burn_damage_event = DamageDealtEvent(
+                target_instance_id=pokemon.instance_id,
+                target_name=pokemon.nickname,
+                damage=damage,
+                remaining_hp=max(0, pokemon.current_hp - damage),
+                max_hp=max_hp,
+                damage_type="status",
+                effectiveness=1.0,
+                is_critical=False,
+                message=message
+            )
+            events.append(burn_damage_event)
+            logger.debug(f"Applied burn damage ({damage}) to {pokemon.nickname}")
+        
+        # 处理睡眠状态（睡眠回合递减）
+        elif status_key == "sleep":
+            if "sleep_turns" not in pokemon.status_counters:
+                # 初始化为2-5回合的随机值
+                pokemon.status_counters["sleep_turns"] = random.randint(2, 5)
+                
+            sleep_turns = pokemon.status_counters["sleep_turns"]
+            sleep_turns -= 1
+            
+            if sleep_turns <= 0:
+                # 睡眠结束
+                events.extend(self.remove_status_effect(pokemon, "sleep"))
+            else:
+                # 更新剩余回合
+                pokemon.status_counters["sleep_turns"] = sleep_turns
+                logger.debug(f"{pokemon.nickname} will be asleep for {sleep_turns} more turns")
+        
+        # 处理冰冻状态（每回合有20%几率解除）
+        elif status_key == "freeze":
+            # 20%几率自然解冻
+            if random.random() < 0.2:
+                events.extend(self.remove_status_effect(pokemon, "freeze"))
+                logger.debug(f"{pokemon.nickname} thawed out!")
+        
+        return events
+
+    async def process_status_start_of_turn(self, pokemon: Pokemon, battle: Optional['Battle'] = None) -> List[BattleEvent]:
+        """
+        处理宝可梦在回合开始时的状态效果，如睡眠、冰冻等可能导致无法行动的状态。
+
+        Args:
+            pokemon: 需要处理状态效果的宝可梦
+            battle: 可选的战斗对象，用于获取场地等信息
+
+        Returns:
+            List[BattleEvent]: 处理状态产生的事件列表，可能包含"无法行动"的事件
+        """
+        events = []
+        
+        if not pokemon.major_status_effect:
+            return events
+        
+        status_key = pokemon.major_status_effect.effect_logic_key
+        
+        # 处理麻痹状态（25%几率无法行动）
+        if status_key == "paralysis":
+            if random.random() < 0.25:  # 25%几率无法行动
+                message = f"{pokemon.nickname}因麻痹而无法行动！"
+                events.append(BattleMessageEvent(message=message))
+                # 添加一个专门的"无法行动"事件
+                events.append(FlinchEvent(
+                    pokemon_instance_id=pokemon.instance_id,
+                    pokemon_name=pokemon.nickname,
+                    message=message
+                ))
+                logger.debug(f"{pokemon.nickname} is paralyzed and cannot move")
+        
+        # 处理睡眠状态（无法行动）
+        elif status_key == "sleep":
+            message = f"{pokemon.nickname}正在睡觉！"
+            events.append(BattleMessageEvent(message=message))
+            # 添加一个专门的"无法行动"事件
+            events.append(FlinchEvent(
+                pokemon_instance_id=pokemon.instance_id,
+                pokemon_name=pokemon.nickname,
+                message=message
+            ))
+            logger.debug(f"{pokemon.nickname} is sleeping and cannot move")
+            
+        # 冰冻状态无法行动
+        elif status_key == "freeze":
+            message = f"{pokemon.nickname}被冰冻住了！"
+            events.append(BattleMessageEvent(message=message))
+            # 添加一个专门的"无法行动"事件
+            events.append(FlinchEvent(
+                pokemon_instance_id=pokemon.instance_id,
+                pokemon_name=pokemon.nickname,
+                message=message
+            ))
+            logger.debug(f"{pokemon.nickname} is frozen and cannot move")
+        
+        return events
+
+    async def _handle_confusion(self, pokemon: Pokemon, battle: Optional['Battle'] = None, phase: str = "action") -> List[BattleEvent]:
+        """
+        处理混乱状态的效果。
+
+        Args:
+            pokemon: 处于混乱状态的宝可梦
+            battle: 当前战斗
+            phase: 当前处理的阶段，可能是"start_of_turn"、"action"或"end_of_turn"
+
+        Returns:
+            List[BattleEvent]: 处理混乱状态产生的事件列表
+        """
+        events = []
+        
+        if phase != "action":
+            return events  # 混乱只在行动阶段检查
+        
+        confusion_data = pokemon.volatile_status.get("confusion", {})
+        if not confusion_data.get("active", False):
+            return events
+        
+        # 混乱持续2-5回合
+        turns_left = confusion_data.get("turns_left", 0)
+        if turns_left <= 0:
+            # 混乱结束
+            pokemon.volatile_status["confusion"]["active"] = False
+            message = f"{pokemon.nickname}的混乱状态解除了！"
+            events.append(VolatileStatusChangeEvent(
+                pokemon=pokemon,
+                status_key="confusion",
+                is_applied=False,
+                message=message
+            ))
+            logger.debug(f"{pokemon.nickname}'s confusion ended")
+            return events
+        
+        # 减少剩余回合
+        pokemon.volatile_status["confusion"]["turns_left"] = turns_left - 1
+        
+        # 混乱有50%几率自伤
+        if random.random() < 0.5:
+            # 计算自伤伤害（基于宝可梦自身的攻击力，使用特殊的混乱伤害公式）
+            attack_stat = pokemon.get_stat("attack")
+            defense_stat = pokemon.get_stat("defense")
+            level = pokemon.level
+            
+            # 混乱伤害公式：((2 * Level / 5 + 2) * 40 * Attack / Defense) / 50 + 2
+            base_damage = ((2 * level / 5 + 2) * 40 * attack_stat / defense_stat) / 50 + 2
+            # 添加0.85-1.0的随机修正
+            damage = int(base_damage * random.uniform(0.85, 1.0))
+            damage = max(1, damage)  # 至少造成1点伤害
+            
+            events.append(DamageDealtEvent(
+                target_instance_id=pokemon.instance_id,
+                target_name=pokemon.nickname,
+                damage=damage,
+                remaining_hp=max(0, pokemon.current_hp - damage),
+                max_hp=pokemon.get_stat("hp"),
+                damage_type="confusion",
+                effectiveness=1.0,
+                is_critical=False,
+                message=f"{pokemon.nickname}混乱中伤到了自己！"
+            ))
+            
+            # 添加一个行动失败事件
+            events.append(FlinchEvent(
+                pokemon_instance_id=pokemon.instance_id,
+                pokemon_name=pokemon.nickname,
+                message=f"{pokemon.nickname}因混乱而无法使用技能！"
+            ))
+            
+            logger.debug(f"{pokemon.nickname} hurt itself in confusion for {damage} damage")
+        else:
+            message = f"{pokemon.nickname}混乱中！"
+            events.append(BattleMessageEvent(message=message))
+            logger.debug(f"{pokemon.nickname} is confused but can still move")
+        
+        return events 
+
+    async def process_volatile_status_start_of_turn(self, pokemon: Pokemon) -> List[BattleEvent]:
+        """
+        处理宝可梦在回合开始时的易变状态效果。
+
+        Args:
+            pokemon: 需要处理状态效果的宝可梦
+
+        Returns:
+            List[BattleEvent]: 处理状态产生的事件列表
+        """
+        events = []
+        
+        # 检查宝可梦是否有易变状态
+        if not hasattr(pokemon, "volatile_status") or not pokemon.volatile_status:
+            return events
+        
+        # 处理畏缩状态（回合开始时清除）
+        if "flinch" in pokemon.volatile_status:
+            events.extend(self.remove_volatile_status(pokemon, "flinch"))
+        
+        # 这里可以添加其他需要在回合开始时处理的易变状态
+        
+        return events 
+
+    async def process_volatile_status_end_of_turn(self, pokemon: Pokemon) -> List[BattleEvent]:
+        """
+        处理宝可梦在回合结束时的易变状态效果。
+
+        Args:
+            pokemon: 需要处理状态效果的宝可梦
+
+        Returns:
+            List[BattleEvent]: 处理状态产生的事件列表
+        """
+        events = []
+        
+        # 检查宝可梦是否有易变状态
+        if not hasattr(pokemon, "volatile_status") or not pokemon.volatile_status:
+            return events
+        
+        # 处理持续回合的易变状态
+        volatile_status_to_process = list(pokemon.volatile_status.keys())
+        
+        for status_key in volatile_status_to_process:
+            if status_key == "confusion":
+                events.extend(self._process_confusion_end_of_turn(pokemon))
+            elif status_key in ["taunt", "encore", "trap"]:
+                # 减少剩余回合数
+                if "turns_left" in pokemon.volatile_status[status_key]:
+                    turns_left = pokemon.volatile_status[status_key]["turns_left"]
+                    if turns_left > 0:
+                        pokemon.volatile_status[status_key]["turns_left"] = turns_left - 1
+                        logger.debug(f"{pokemon.nickname}'s {status_key} has {turns_left-1} turns left")
+                    
+                    # 如果回合数归零，移除状态
+                    if pokemon.volatile_status[status_key]["turns_left"] <= 0:
+                        events.extend(self.remove_volatile_status(pokemon, status_key))
+        
+        return events
+
+    def _process_confusion_end_of_turn(self, pokemon: Pokemon) -> List[BattleEvent]:
+        """
+        处理宝可梦在回合结束时的混乱状态。
+
+        Args:
+            pokemon: 需要处理混乱状态的宝可梦
+
+        Returns:
+            List[BattleEvent]: 处理混乱状态产生的事件列表
+        """
+        events = []
+        
+        # 检查宝可梦是否有混乱状态
+        if "confusion" not in pokemon.volatile_status:
+            return events
+        
+        # 获取剩余混乱回合
+        turns_left = pokemon.volatile_status["confusion"]["turns_left"]
+        
+        # 如果回合数归零，移除混乱状态
+        if turns_left <= 0:
+            message = f"{pokemon.nickname}恢复了清醒！"
+            events.extend(self.remove_volatile_status(pokemon, "confusion"))
+            events.append(BattleMessageEvent(
+                message=message
+            ))
+            logger.debug(f"{pokemon.nickname}'s confusion ended")
+            return events
+        
+        # 减少剩余回合
+        pokemon.volatile_status["confusion"]["turns_left"] = turns_left - 1
+        logger.debug(f"{pokemon.nickname} will be confused for {turns_left-1} more turns")
+        
+        return events
+
+    def apply_confusion(self, pokemon: Pokemon) -> List[BattleEvent]:
+        """
+        对宝可梦应用混乱状态。
+        
+        Args:
+            pokemon: 要应用混乱状态的宝可梦
+            
+        Returns:
+            List[BattleEvent]: 应用混乱状态产生的事件列表
+        """
+        events = []
+        
+        # 检查宝可梦是否已经混乱
+        if hasattr(pokemon, "volatile_status") and pokemon.volatile_status and "confusion" in pokemon.volatile_status:
+            message = f"{pokemon.nickname}已经处于混乱状态！"
+            events.append(BattleMessageEvent(message=message))
+            return events
+        
+        # 初始化易变状态字典（如果不存在）
+        if not hasattr(pokemon, "volatile_status") or pokemon.volatile_status is None:
+            pokemon.volatile_status = {}
+        
+        # 应用混乱状态（持续2-5回合）
+        confusion_turns = random.randint(2, 5)
+        pokemon.volatile_status["confusion"] = {"active": True, "turns_left": confusion_turns}
+        
+        # 创建混乱状态应用事件
+        message = f"{pokemon.nickname}混乱了！"
+        events.append(VolatileStatusChangeEvent(
+            pokemon_instance_id=pokemon.instance_id,
+            pokemon_name=pokemon.nickname,
+            status_key="confusion",
+            is_applied=True,
+            message=message
+        ))
+        
+        logger.debug(f"Applied confusion to {pokemon.nickname} for {confusion_turns} turns")
+        
+        return events
+
+    def has_status_effect(self, pokemon: Pokemon, status_logic_key: str, volatile: bool = False) -> bool:
+        """
+        检查宝可梦是否有指定的状态效果。
+        
+        Args:
+            pokemon: 要检查的宝可梦
+            status_logic_key: 状态效果的逻辑键
+            volatile: 是否检查易变状态
+            
+        Returns:
+            bool: 如果宝可梦有指定状态效果，则返回True；否则返回False
+        """
+        if volatile:
+            # 检查易变状态
+            if not hasattr(pokemon, "volatile_status") or not pokemon.volatile_status:
+                return False
+            return status_logic_key in pokemon.volatile_status
+        else:
+            # 检查主要状态
+            if not pokemon.major_status_effect:
+                return False
+            return pokemon.major_status_effect.logic_key == status_logic_key

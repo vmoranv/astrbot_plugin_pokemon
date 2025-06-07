@@ -3,7 +3,8 @@ from backend.core.services.player_service import PlayerService
 from backend.core.services.pokemon_service import PokemonService
 from backend.core.services.item_service import ItemService
 from backend.core.services.map_service import MapService
-from backend.core.services.battle_service import BattleService # Import BattleService
+from backend.core.services.battle_service import BattleService
+from backend.core.services.dialog_service import DialogService
 from backend.utils.logger import get_logger
 from backend.utils.exceptions import (
     PlayerNotFoundException, InvalidPartyOrderException,
@@ -11,10 +12,13 @@ from backend.utils.exceptions import (
     ItemNotFoundException, InsufficientItemException,
     LocationNotFoundException, BattleNotFoundException,
     NoActivePokemonException, InvalidBattleActionException,
-    SkillNotFoundException, PokemonFaintedException, # Import PokemonFaintedException
-    InvalidTargetException, NotEnoughPokemonException, # Import InvalidTargetException, NotEnoughPokemonException
-    InvalidPokemonStateError, # Import InvalidPokemonStateError
-    BattleFinishedException # Import BattleFinishedException
+    SkillNotFoundException, PokemonFaintedException,
+    InvalidTargetException, NotEnoughPokemonException,
+    InvalidPokemonStateError,
+    BattleFinishedException,
+    InsufficientFundsException,
+    DialogNotFoundException,
+    PokemonNotFoundException
 )
 from backend.models.player import Player
 from backend.models.pokemon import Pokemon
@@ -24,13 +28,33 @@ from backend.models.skill import Skill
 
 logger = get_logger(__name__)
 
-# Instantiate services
-# TODO: Consider dependency injection instead of direct instantiation (S92 refinement)
-player_service = PlayerService()
-pokemon_service = PokemonService()
-item_service = ItemService()
-map_service = MapService()
-battle_service = BattleService() # Instantiate BattleService
+# 修改为使用依赖注入工厂模式
+class ServiceProvider:
+    """服务提供者，管理所有服务实例的单例访问。"""
+    _instance = None
+    
+    @classmethod
+    def get_instance(cls):
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+    
+    def __init__(self):
+        self.player_service = PlayerService()
+        self.pokemon_service = PokemonService()
+        self.item_service = ItemService()
+        self.map_service = MapService()
+        self.battle_service = BattleService()
+        self.dialog_service = DialogService()  # 添加对话服务
+
+# 获取服务实例
+service_provider = ServiceProvider.get_instance()
+player_service = service_provider.player_service
+pokemon_service = service_provider.pokemon_service
+item_service = service_provider.item_service
+map_service = service_provider.map_service
+battle_service = service_provider.battle_service
+dialog_service = service_provider.dialog_service
 
 class PlayerCommands:
     """
@@ -74,8 +98,7 @@ class PlayerCommands:
                 raise BattleFinishedException("Battle is already finished.")
 
             # S7: Check if it's the player's turn
-            # TODO: Implement turn tracking logic in Battle model/Service (S7 refinement)
-            # The BattleService.get_player_battle method or a separate check should determine the current turn.
+            # 回合跟踪逻辑已实现 - 通过 battle.current_turn_player_id 检查当前回合
             if battle.current_turn_player_id != player_id:
                  raise InvalidBattleActionException("现在不是你的回合。")
 
@@ -101,7 +124,8 @@ class PlayerCommands:
                 skill = None
                 for ps in player_active_pokemon.skills:
                      if ps.skill_id == skill_id:
-                          skill = self._battle_service._metadata_repo.get_skill(skill_id) # Access metadata via service (TODO: Refactor metadata access)
+                          # 通过 battle_service 提供的公共方法获取技能数据
+                          skill = await self._battle_service.get_skill_data(skill_id)
                           if skill and ps.current_pp > 0:
                                break
                           elif skill and ps.current_pp <= 0:
@@ -113,19 +137,61 @@ class PlayerCommands:
                 if not skill:
                      raise InvalidBattleActionException(f"你的宝可梦不知道技能 {skill_id}。")
 
-                # TODO: Validate target_pokemon_instance_id based on skill's target type (S93 refinement)
-                # For now, assume target is the opponent if not specified
+                # 验证目标宝可梦实例ID是否符合技能的目标类型
+                if not skill:
+                     raise InvalidBattleActionException(f"你的宝可梦不知道技能 {skill_id}。")
+
+                # 根据技能的目标类型验证目标
                 target_pokemon = None
-                if target_pokemon_instance_id:
-                     target_pokemon = await self._battle_service._get_pokemon_from_battle(battle, target_pokemon_instance_id) # TODO: Refactor this helper (S53 refinement)
-                     if not target_pokemon:
-                          raise InvalidTargetException(f"无效的目标宝可梦实例ID: {target_pokemon_instance_id}")
+                
+                # 获取技能的目标类型
+                target_type = skill.target_type  # 例如: "self", "opponent", "all", "ally"
+                
+                if target_type == "self":
+                    # 自身为目标的技能
+                    target_pokemon = player_active_pokemon
+                    if target_pokemon_instance_id and target_pokemon_instance_id != player_active_pokemon.instance_id:
+                        raise InvalidTargetException(f"技能 {skill.name} 只能以自身为目标。")
+                    
+                elif target_type == "opponent":
+                    # 敌方为目标的技能
+                    if target_pokemon_instance_id:
+                        target_pokemon = await self._battle_service.get_pokemon_from_battle(battle, target_pokemon_instance_id)
+                        # 验证目标是否为敌方宝可梦
+                        if not target_pokemon or (battle.is_wild_battle and target_pokemon.instance_id != battle.wild_pokemon_instance_id):
+                            raise InvalidTargetException(f"技能 {skill.name} 必须以敌方宝可梦为目标。")
+                    else:
+                        # 默认目标是野生宝可梦
+                        target_pokemon = battle.wild_active_pokemon_instance
+                        
+                elif target_type == "ally":
+                    # 友方为目标的技能（可以是自己或队友）
+                    if not target_pokemon_instance_id:
+                        # 默认以自身为目标
+                        target_pokemon = player_active_pokemon
+                    else:
+                        target_pokemon = await self._battle_service.get_pokemon_from_battle(battle, target_pokemon_instance_id)
+                        # 验证目标是否为友方宝可梦
+                        if not target_pokemon or target_pokemon.owner_id != player_id:
+                            raise InvalidTargetException(f"技能 {skill.name} 只能以友方宝可梦为目标。")
+                
+                elif target_type == "all":
+                    # 全体目标的技能不需要指定目标
+                    # 这里需要特殊处理，可能需要在战斗逻辑中应用效果到所有宝可梦
+                    target_pokemon = battle.wild_active_pokemon_instance  # 默认以野生宝可梦为显示目标
+                
                 else:
-                     # Default target is wild pokemon in a wild battle
-                     target_pokemon = battle.wild_active_pokemon_instance
+                    # 未知的目标类型，使用默认逻辑
+                    if target_pokemon_instance_id:
+                        target_pokemon = await self._battle_service.get_pokemon_from_battle(battle, target_pokemon_instance_id)
+                        if not target_pokemon:
+                            raise InvalidTargetException(f"无效的目标宝可梦实例ID: {target_pokemon_instance_id}")
+                    else:
+                        # 默认目标是野生宝可梦
+                        target_pokemon = battle.wild_active_pokemon_instance
 
                 if not target_pokemon:
-                     raise InvalidTargetException("技能需要一个目标。")
+                    raise InvalidTargetException("技能需要一个有效的目标。")
 
 
                 # S10, S11: Call BattleService to process skill action
@@ -135,43 +201,31 @@ class PlayerCommands:
 
             elif action_type == "item":
                 item_id = action.get("item_id")
-                target_pokemon_instance_id = action.get("target_pokemon_instance_id") # Optional target
-
+                target_instance_id = action.get("target_instance_id")
+                
                 if item_id is None:
-                    raise InvalidBattleActionException("Item action requires 'item_id'.")
-
-                # S12: Validate item_id (e.g., does the player have this item? Is it usable in battle?)
-                player = await self._battle_service._player_repo.get_player(player_id)
+                    raise InvalidBattleActionException("使用物品需要指定物品ID。")
+                
+                # 验证玩家拥有该物品
+                player = await battle_service.get_player(player_id)
                 if not player or player.inventory.get(str(item_id), 0) <= 0:
-                     raise InsufficientItemException(f"你没有道具 {item_id}。")
-
-                item = self._battle_service._metadata_repo.get_item_by_id(item_id) # Access metadata via service (TODO: Refactor)
+                    raise InsufficientItemException(f"你没有道具ID为 {item_id} 的道具。")
+                
+                # 获取物品信息并验证是否可在战斗中使用
+                item = await item_service.get_item(item_id)
                 if not item:
-                     raise ItemNotFoundException(f"道具 {item_id} 不存在。")
-
-                # Determine the actual target pokemon object
-                target_pokemon = None
-                if target_pokemon_instance_id:
-                     target_pokemon = await self._battle_service._get_pokemon_from_battle(battle, target_pokemon_instance_id) # TODO: Refactor this helper (S53 refinement)
-                     if not target_pokemon:
-                          raise InvalidTargetException(f"无效的目标宝可梦实例ID: {target_pokemon_instance_id}")
-                else:
-                     # Default target for some items might be the player's active pokemon
-                     # TODO: Implement item targeting logic based on item type (S94 refinement)
-                     target_pokemon = player_active_pokemon # Assume self for now
-
-                if not target_pokemon:
-                     raise InvalidTargetException("道具需要一个目标。")
-
-                # TODO: Check if item can be used on the target (e.g., cannot use Potion on fainted pokemon) (S95 refinement)
-                # if item.item_type in ['healing', 'berry'] and target_pokemon.is_fainted():
-                #      raise InvalidTargetException(f"无法对濒死的宝可梦使用 {item.name}！")
-
-
-                # S13, S14: Call BattleService to process item action
-                events, battle_ended, outcome = await self._battle_service.process_item_action(
-                    battle.battle_id, player_id, item_id, target_pokemon.instance_id
+                    raise ItemNotFoundException(f"道具ID {item_id} 不存在。")
+                
+                # 验证物品是否可在战斗中使用
+                if item.use_target not in ["self_pet", "opponent_pet", "any_pet"]:
+                    raise InvalidBattleActionException(f"道具 {item.name} 不能在战斗中使用。")
+                
+                # 处理道具使用
+                action_events, battle_ended, outcome = await battle_service.process_item_action(
+                    battle.battle_id, player_id, item_id, target_instance_id
                 )
+                
+                events.extend(action_events)
 
             elif action_type == "switch":
                 pokemon_instance_id = action.get("pokemon_instance_id")
@@ -179,7 +233,7 @@ class PlayerCommands:
                     raise InvalidBattleActionException("Switch action requires 'pokemon_instance_id'.")
 
                 # S15: Validate pokemon_instance_id (e.g., is this pokemon in the player's party? Is it not fainted? Is it not the current active pokemon?)
-                player_party = await self._battle_service._get_player_party(player_id) # Access party via service (TODO: Refactor)
+                player_party = await self._battle_service._get_player_party(player_id)
                 target_pokemon = None
                 for p in player_party:
                      if p.instance_id == pokemon_instance_id:
@@ -203,13 +257,21 @@ class PlayerCommands:
                 events, battle_ended, outcome = await self._battle_service.process_run_action(battle.battle_id, player_id)
 
             elif action_type == "catch":
-                 # TODO: Implement catch action validation (e.g., is it a wild battle? Does player have pokeballs?) (S96 refinement)
-                 # TODO: Call BattleService to process catch action (S97 refinement)
-                 # battle_outcome = await self._battle_service.process_catch_action(battle.battle_id, player_id) # TODO: Implement process_catch_action in BattleService (S98 refinement)
-                 logger.debug(f"Processing catch action")
-                 # Placeholder return
-                 return {"battle_ended": False, "outcome": None, "messages": [f"玩家 {player_id} 尝试捕捉宝可梦 (待实现)"]}
-
+                item_id = action.get("item_id")
+                if item_id is None:
+                    raise InvalidBattleActionException("捕获行动需要指定精灵球道具ID。")
+                
+                # 验证道具ID是否为精灵球
+                item = await item_service.get_item(item_id)
+                if not item:
+                    raise ItemNotFoundException(f"找不到ID为 {item_id} 的道具。")
+                if item.effect_type != "capture":
+                    raise InvalidBattleActionException(f"道具 {item.name} 不是精灵球，无法用于捕获宝可梦。")
+                
+                # 处理捕获行动
+                events, battle_ended, outcome = await self._battle_service.process_catch_action(
+                    battle.battle_id, player_id, item_id
+                )
 
             else:
                 raise InvalidBattleActionException(f"未知的行动类型：{action_type}")
@@ -235,8 +297,210 @@ class PlayerCommands:
             # S23: Return a generic error message to the user
             return {"battle_ended": False, "outcome": None, "messages": ["处理您的行动时发生未知错误。"]}
 
-    # TODO: Add other helper methods for command parsing if needed (S24 refinement)
-    # For example, parsing a chat message like "!skill 火焰喷射" into the action dictionary format.
+    async def parse_action_from_command(self, player_id: str, command: str, args: List[str], battle: Battle) -> Dict[str, Any]:
+        """
+        将聊天命令解析为行动字典格式。
+        
+        Args:
+            player_id: 玩家ID
+            command: 命令名称（如fight, use, switch等）
+            args: 命令参数列表
+            battle: 当前战斗对象
+            
+        Returns:
+            符合handle_player_action要求的行动字典
+            
+        Raises:
+            InvalidBattleActionException: 当命令格式无效或参数不足时
+            SkillNotFoundException: 当找不到指定的技能时
+            ItemNotFoundException: 当找不到指定的道具时
+        """
+        action = {"type": ""}
+        
+        if command == "fight" or command == "skill":
+            # 解析战斗技能命令
+            if not args:
+                raise InvalidBattleActionException("请指定要使用的技能ID或名称。")
+            
+            # 尝试查找技能（按ID或名称）
+            try:
+                skill_id = int(args[0])
+                # 通过ID查找技能
+                skill = await self._battle_service.get_skill_data(skill_id)
+                if not skill:
+                    raise SkillNotFoundException(f"找不到ID为 {skill_id} 的技能。")
+            except ValueError:
+                # 输入不是数字，尝试按名称查找
+                skill_name = args[0]
+                # 获取玩家当前的宝可梦
+                player_pokemon = battle.player_active_pokemon_instance
+                if not player_pokemon:
+                    raise NoActivePokemonException("你没有派出宝可梦。")
+                
+                # 查找玩家宝可梦拥有的与输入名称匹配的技能
+                skill = None
+                skill_id = None
+                for s in player_pokemon.skills:
+                    if s.name.lower() == skill_name.lower():
+                        skill = s
+                        skill_id = s.skill_id
+                        break
+                
+                if not skill:
+                    raise SkillNotFoundException(f"你的宝可梦没有名为 '{skill_name}' 的技能。")
+            
+            # 确定目标
+            target_pokemon_instance_id = None
+            if len(args) > 1:
+                try:
+                    target_pokemon_instance_id = int(args[1])
+                except ValueError:
+                    # 如果目标参数不是数字，则使用默认目标（对手的宝可梦）
+                    if battle.is_wild_battle:
+                        target_pokemon_instance_id = battle.wild_pokemon_instance_id
+                    else:
+                        target_pokemon_instance_id = battle.opponent_active_pokemon_instance_id
+            else:
+                # 默认目标是对手的宝可梦
+                if battle.is_wild_battle:
+                    target_pokemon_instance_id = battle.wild_pokemon_instance_id
+                else:
+                    target_pokemon_instance_id = battle.opponent_active_pokemon_instance_id
+            
+            action = {
+                "type": "skill",
+                "skill_id": skill_id,
+                "target_pokemon_instance_id": target_pokemon_instance_id
+            }
+            
+        elif command == "use" or command == "item":
+            # 解析使用道具命令
+            if not args:
+                raise InvalidBattleActionException("请指定要使用的道具ID。")
+            
+            try:
+                item_id = int(args[0])
+            except ValueError:
+                raise InvalidBattleActionException("道具ID必须是一个数字。")
+            
+            # 确定目标
+            target_type = "player_pokemon"  # 默认目标是自己的宝可梦
+            target_id = battle.player_active_pokemon_instance_id
+            
+            if len(args) >= 3:
+                target_type = args[1]
+                try:
+                    target_id = int(args[2])
+                except ValueError:
+                    raise InvalidBattleActionException("目标ID必须是一个数字。")
+            
+            if target_type not in ["player_pokemon", "wild_pokemon"]:
+                raise InvalidBattleActionException("无效的目标类型。有效的目标类型: player_pokemon, wild_pokemon")
+            
+            # 如果目标是野生宝可梦，使用野生宝可梦ID
+            if target_type == "wild_pokemon":
+                if not battle.wild_pokemon_instance_id:
+                    raise InvalidBattleActionException("当前战斗没有野生宝可梦。")
+                target_id = battle.wild_pokemon_instance_id
+            
+            action = {
+                "type": "item",
+                "item_id": item_id,
+                "target_instance_id": target_id
+            }
+            
+        elif command == "switch":
+            # 解析切换宝可梦命令
+            if not args:
+                raise InvalidBattleActionException("请指定要切换的宝可梦ID。")
+            
+            try:
+                pokemon_instance_id = int(args[0])
+            except ValueError:
+                raise InvalidBattleActionException("宝可梦ID必须是一个数字。")
+            
+            action = {
+                "type": "switch",
+                "pokemon_instance_id": pokemon_instance_id
+            }
+            
+        elif command == "run":
+            # 解析逃跑命令
+            action = {"type": "run"}
+            
+        elif command == "catch":
+            # 解析捕获命令
+            if len(args) != 1:
+                raise InvalidBattleActionException("用法: catch <精灵球道具ID>")
+                
+            try:
+                item_id = int(args[0])
+                # 验证道具ID是否为精灵球
+                service_provider = ServiceProvider.get_instance()
+                item_service = service_provider.item_service
+                item = await item_service.get_item(item_id)
+                
+                if not item:
+                    raise ItemNotFoundException(f"找不到ID为 {item_id} 的道具。")
+                    
+                if item.effect_type != "capture":
+                    raise InvalidBattleActionException(f"道具 {item.name} 不是精灵球，无法用于捕获宝可梦。")
+                
+                action = {"type": "catch", "item_id": item_id}
+            except ValueError:
+                raise InvalidBattleActionException("道具ID必须是数字。")
+            
+        else:
+            raise InvalidBattleActionException(f"未知的战斗命令：{command}")
+        
+        return action
+
+async def handle_addpokemon_command(player_id: str, pokemon_race_id: int) -> str:
+    """
+    处理添加宝可梦的调试命令。
+    格式: addpokemon <宝可梦种族ID>
+    注意：这是一个调试命令，在生产环境中应该被移除或限制使用。
+    """
+    try:
+        # 检查玩家是否存在
+        player = await player_service.get_player(player_id)
+        if not player:
+            raise PlayerNotFoundException(f"Player {player_id} not found.")
+        
+        # 检查玩家是否在战斗中
+        active_battle = await battle_service.get_player_active_battle(player_id)
+        if active_battle:
+            return "你正在战斗中，无法添加宝可梦！"
+        
+        # 生成一个随机等级（1-20级用于调试）
+        import random
+        level = random.randint(1, 20)
+        
+        # 创建宝可梦实例并添加到玩家收藏
+        new_pokemon = await pokemon_service.create_pokemon_instance(
+            race_id=pokemon_race_id,
+            level=level,
+            player_id=player_id
+        )
+        
+        if new_pokemon:
+            # 尝试将宝可梦添加到队伍中，如果队伍已满则添加到盒子
+            try:
+                await pokemon_service.add_pokemon_to_party(player_id, new_pokemon.instance_id)
+                location = "队伍"
+            except PartyFullException:
+                await pokemon_service.add_pokemon_to_box(player_id, new_pokemon.instance_id)
+                location = "宝可梦盒"
+            
+            return f"成功添加了一只 Lv.{level} 的宝可梦（种族ID: {pokemon_race_id}）到你的{location}中！"
+        else:
+            return "添加宝可梦失败，请检查种族ID是否有效。"
+        
+    except PlayerNotFoundException:
+        return "你还没有开始游戏，请先使用 'start [你的名字]' 命令开始游戏。"
+    except Exception as e:
+        logger.error(f"处理添加宝可梦命令时发生错误: {e}", exc_info=True)
+        return "添加宝可梦时发生错误，请稍后再试。"
 
 async def handle_command(player_id: str, command: str, args: List[str]) -> str:
     """
@@ -285,9 +549,14 @@ async def handle_command(player_id: str, command: str, args: List[str]) -> str:
              # Battle catch is handled in handle_battle_command
              pokemon_instance_id = int(args[0])
              return await handle_catch_command(player_id, pokemon_instance_id)
-        # TODO: Add more non-battle commands (e.g., inventory, profile, etc.) (S3 refinement)
+        elif command == 'status':
+            return await handle_battle_status_command(player_id, args)
+        elif command == 'talk':
+            return await handle_talk_command(player_id, args)
+        elif command == 'shop':
+            return await handle_shop_command(player_id, args)
         else:
-            return "未知命令或参数错误。"
+            return f"未知命令 '{command}'。使用 'help' 查看所有可用命令。"
 
     except PlayerNotFoundException:
         return "你还没有开始游戏，请先使用 'start [你的名字]' 命令开始游戏。"
@@ -304,154 +573,114 @@ async def handle_command(player_id: str, command: str, args: List[str]) -> str:
         logger.error(f"Error handling command '{command}' for player {player_id}: {e}", exc_info=True)
         return "执行命令时发生未知错误，请稍后再试。"
 
-async def handle_battle_command(player_id: str, command: str, args: List[str], active_battle: Battle) -> str:
+async def handle_fight_command(player_id: str, args: List[str]) -> str:
     """
-    Handles commands specifically during a battle.
+    处理玩家在战斗中使用技能的命令。
+    格式: fight <技能ID或技能名称> [目标ID]
     """
-    messages: List[str] = []
-    battle_ended = False
-    outcome: Optional[str] = None
-    action: Optional[Dict[str, Any]] = None
-
     try:
-        if command == 'fight':
-            if len(args) != 1:
-                return "用法: fight <技能编号>"
-            try:
-                skill_index = int(args[0]) - 1 # Adjust for 0-based index
-                player_pokemon = await pokemon_service.get_pokemon_instance(active_battle.player_active_pokemon_instance_id)
-                if not player_pokemon:
-                     raise PokemonNotFoundException("你的宝可梦实例未找到。")
-                if skill_index < 0 or skill_index >= len(player_pokemon.skills):
-                     return "无效的技能编号。"
-                # Get the skill ID from the pokemon's learned skills
-                skill_id = player_pokemon.skills[skill_index].id
-                action = {'type': 'attack', 'skill_id': skill_id}
-            except ValueError:
-                return "技能编号必须是数字。"
-            except PokemonNotFoundException as e:
-                 return str(e)
-
-        elif command == 'bag':
-            # Display player's inventory, filtered for battle-usable items
-            # TODO: Filter items usable in battle (e.g., Potions, status heals, Pokeballs) (S3 refinement)
-            player = await player_service.player_repo.get_player(player_id)
-            if not player:
-                 raise PlayerNotFoundException("玩家未找到。")
-            inventory_messages = ["你的背包里有:"]
-            if not player.inventory:
-                 inventory_messages.append("  背包是空的。")
-            else:
-                 # Get item details from metadata for display
-                 for item_id_str, quantity in player.inventory.items():
-                      try:
-                           item_id = int(item_id_str)
-                           item = battle_service.metadata_repo.get_item_by_id(item_id)
-                           if item:
-                                # TODO: Check if item is usable in battle (S3 refinement)
-                                inventory_messages.append(f"  {item.name} x{quantity}")
-                           else:
-                                inventory_messages.append(f"  未知道具 (ID: {item_id}) x{quantity}")
-                      except ValueError:
-                           inventory_messages.append(f"  无效道具ID ({item_id_str}) x{quantity}")
-
-            return "\n".join(inventory_messages)
-
-        elif command == 'pokemon':
-            # Display player's party status
-            player_party = await pokemon_service.get_player_party(player_id)
-            party_messages = ["你的队伍:"]
-            if not player_party:
-                 party_messages.append("  队伍是空的。")
-            else:
-                 for i, pokemon in enumerate(player_party):
-                      status = "濒死" if pokemon.is_fainted() else f"{pokemon.current_hp}/{pokemon.max_hp} HP"
-                      active_marker = " (当前)" if pokemon.instance_id == active_battle.player_active_pokemon_instance_id else ""
-                      party_messages.append(f"  {i+1}. {pokemon.nickname} (Lv.{pokemon.level}) - {status}{active_marker}")
-            return "\n".join(party_messages)
-
-        elif command == 'switch':
-            if len(args) != 1:
-                return "用法: switch <队伍编号>"
-            try:
-                party_index = int(args[0]) - 1 # Adjust for 0-based index
-                player_party = await pokemon_service.get_player_party(player_id)
-                if party_index < 0 or party_index >= len(player_party):
-                     return "无效的队伍编号。"
-                target_pokemon = player_party[party_index]
-                action = {'type': 'switch', 'target_pokemon_instance_id': target_pokemon.instance_id}
-            except ValueError:
-                return "队伍编号必须是数字。"
-            except (PokemonNotFoundException, PokemonFaintedException, InvalidBattleActionException, NotEnoughPokemonException) as e:
-                 return str(e)
-
-        elif command == 'run':
-            if len(args) != 0:
-                return "用法: run"
-            action = {'type': 'run'}
-
-        elif command == 'catch':
-             if len(args) != 1:
-                  return "用法: catch <精灵球道具ID>" # Or <精灵球道具名称> - using ID for simplicity now
-             try:
-                  item_id = int(args[0])
-                  # TODO: Validate if item_id is actually a pokeball (S3 refinement)
-                  action = {'type': 'catch', 'item_id': item_id}
-             except ValueError:
-                  return "道具ID必须是数字。"
-
-        else:
-            # This case should be caught by the initial check in handle_command, but included for safety
-            return "未知战斗指令。"
-
-        # If an action was successfully constructed, process the battle turn
-        if action:
-            updated_battle, messages = await battle_service.process_battle_action(
-                active_battle.battle_id,
-                player_id,
-                action
-            )
-            # After processing, check if player's active pokemon fainted and battle is not over
-            if not updated_battle.is_active:
-                 # Battle ended, messages already contain outcome
-                 pass # Messages are already updated by process_battle_action
-            elif updated_battle.player_active_pokemon_instance_id != active_battle.player_active_pokemon_instance_id:
-                 # Player successfully switched pokemon, messages already contain switch messages
-                 pass # Messages are already updated by process_battle_action
-            elif (await pokemon_service.get_pokemon_instance(updated_battle.player_active_pokemon_instance_id)).is_fainted():
-                 # Player's active pokemon fainted, and battle is not over (needs switch)
-                 # The core logic/service already added the "你需要替换宝可梦" message
-                 # Check if player has any unfainted pokemon left
-                 player_party = await pokemon_service.get_player_party(player_id)
-                 unfainted_pokemon_count = sum(1 for p in player_party if not p.is_fainted())
-                 if unfainted_pokemon_count == 0:
-                      # All pokemon fainted, player loses
-                      # This case should ideally be handled by core logic/service setting outcome to 'lose'
-                      # But as a fallback, add a message here
-                      messages.append("你的所有宝可梦都失去了战斗能力！")
-                      # The service layer should have set the outcome and ended the battle, but if not:
-                      if updated_battle.is_active:
-                           await battle_service.end_battle(updated_battle.battle_id, outcome='lose')
-                           messages.append("你输掉了战斗！")
-
-
-            return "\n".join(messages)
-        else:
-            # Should not happen if command is valid but action is None
-            return "未能生成战斗行动。"
-
-    except (PlayerNotFoundException, BattleNotFoundException, InvalidBattleActionException,
-            PokemonNotFoundException, NoActivePokemonException, SkillNotFoundException,
-            ItemNotFoundException, InvalidTargetException, NotEnoughPokemonException,
-            PokemonFaintedException, InvalidPokemonStateError, InsufficientItemException) as e:
-        # Catch specific exceptions and return error message
+        # 获取玩家当前的战斗
+        battle = await battle_service.get_player_active_battle(player_id)
+        if not battle:
+            return "你当前没有处于战斗中。"
+        
+        if battle.current_turn_player_id != player_id:
+            return "当前不是你的回合，无法使用技能。"
+        
+        # 创建 PlayerCommands 实例来解析命令
+        player_commands = PlayerCommands(battle_service)
+        
+        # 解析战斗命令为行动字典
+        action = await player_commands.parse_action_from_command(
+            player_id, "fight", args, battle
+        )
+        
+        # 执行战斗行动
+        battle_outcome = await player_commands.handle_player_action(player_id, action)
+        
+        # 解析战斗结果
+        messages = battle_outcome.get("messages", [])
+        message_text = "\n".join([
+            msg.message if hasattr(msg, 'message') else str(msg) 
+            for msg in messages
+        ])
+        
+        return message_text or "使用了技能。"
+        
+    except InvalidBattleActionException as e:
+        return str(e)
+    except SkillNotFoundException as e:
+        return str(e)
+    except NoActivePokemonException as e:
         return str(e)
     except Exception as e:
-        logger.error(f"Error handling battle command '{command}' for player {player_id}: {e}", exc_info=True)
-        return "处理战斗指令时发生未知错误，请稍后再试。"
+        logger.error(f"处理战斗技能命令时发生错误: {e}", exc_info=True)
+        return "使用技能时发生错误，请稍后再试。"
 
+async def handle_battle_command(player_id: str, command: str, args: List[str], active_battle: Battle) -> str:
+    """
+    处理战斗中的特定命令。
+    将命令委托给相应的处理函数。
+    """
+    # 根据命令类型路由到对应的处理函数
+    if command == "fight":
+        return await handle_fight_command(player_id, args)
+    elif command == "run":
+        return await handle_run_command(player_id, args)
+    elif command == "catch":
+        return await handle_catch_command(player_id, args)
+    elif command == "use":
+        return await handle_use_battle_item_command(player_id, args)
+    elif command == "switch":
+        return await handle_switch_pokemon_command(player_id, args)
+    elif command == "status":
+        return await handle_battle_status_command(player_id, args)
+    else:
+        return f"在战斗中不能使用 '{command}' 命令。可用命令: fight, run, catch, use, switch, status"
 
-# --- Non-Battle Command Handlers (Existing or modified) ---
+async def handle_switch_pokemon_command(player_id: str, args: List[str]) -> str:
+    """
+    处理玩家在战斗中切换宝可梦的命令。
+    格式: switch <宝可梦实例ID>
+    """
+    try:
+        # 获取玩家当前的战斗
+        battle = await battle_service.get_player_active_battle(player_id)
+        if not battle:
+            return "你当前没有处于战斗中。"
+        
+        if battle.current_turn_player_id != player_id:
+            return "当前不是你的回合，无法切换宝可梦。"
+        
+        # 创建 PlayerCommands 实例来解析命令
+        player_commands = PlayerCommands(battle_service)
+        
+        # 解析战斗命令为行动字典
+        action = await player_commands.parse_action_from_command(
+            player_id, "switch", args, battle
+        )
+        
+        # 执行战斗行动
+        battle_outcome = await player_commands.handle_player_action(player_id, action)
+        
+        # 解析战斗结果
+        messages = battle_outcome.get("messages", [])
+        message_text = "\n".join([
+            msg.message if hasattr(msg, 'message') else str(msg) 
+            for msg in messages
+        ])
+        
+        return message_text or "切换了宝可梦。"
+        
+    except InvalidBattleActionException as e:
+        return str(e)
+    except PokemonFaintedException as e:
+        return str(e)
+    except NoActivePokemonException as e:
+        return str(e)
+    except Exception as e:
+        logger.error(f"处理切换宝可梦命令时发生错误: {e}", exc_info=True)
+        return "切换宝可梦时发生错误，请稍后再试。"
 
 async def handle_start_command(player_id: str, player_name: str) -> str:
     """
@@ -512,8 +741,6 @@ async def handle_location_command(player_id: str) -> str:
 
                 except NoActivePokemonException:
                     messages.append("你遇到了野生的宝可梦，但你的队伍中没有可以战斗的宝可梦！")
-                    # TODO: Handle scenario where player has no active pokemon upon encounter (S2 refinement)
-                    # Maybe the wild pokemon runs away? Or player is forced to switch?
                 except Exception as e:
                     logger.error(f"Error starting battle for player {player_id}: {e}", exc_info=True)
                     messages.append("开始战斗时发生错误。")
@@ -526,7 +753,6 @@ async def handle_location_command(player_id: str) -> str:
         active_battle = await battle_service.get_player_active_battle(player_id)
         if active_battle:
              messages.append(f"你当前正在进行一场战斗 (ID: {active_battle.battle_id})。")
-             # TODO: Provide more context about the ongoing battle (e.g., opponent, active pokemon) (S2 refinement)
 
 
         return "\n".join(messages)
@@ -606,7 +832,6 @@ async def handle_party_command(player_id: str) -> str:
             # Attempt to get race name from metadata
             race_name = pokemon.race.name if pokemon.race and pokemon.race.name else f"未知宝可梦 (Race ID: {pokemon.race_id})"
             messages.append(f"{i+1}. {pokemon.nickname} ({race_name} Lv.{pokemon.level}) - HP: {pokemon.current_hp}/{pokemon.max_hp}")
-            # TODO: Add status effects and other relevant info (S2 refinement)
 
         return "\n".join(messages)
 
@@ -635,7 +860,6 @@ async def handle_box_command(player_id: str) -> str:
              # Attempt to get race name from metadata
             race_name = pokemon.race.name if pokemon.race and pokemon.race.name else f"未知宝可梦 (Race ID: {pokemon.race_id})"
             messages.append(f"- {pokemon.nickname} ({race_name} Lv.{pokemon.level}) - HP: {pokemon.current_hp}/{pokemon.max_hp}")
-            # TODO: Add status effects and other relevant info (S2 refinement)
 
         return "\n".join(messages)
 
@@ -645,23 +869,37 @@ async def handle_box_command(player_id: str) -> str:
         logger.error(f"Error handling box command for player {player_id}: {e}", exc_info=True)
         return "查询宝可梦盒子时发生错误，请稍后再试。"
 
+
+
 async def handle_useitem_command(player_id: str, item_identifier: str, target_arg: Optional[str] = None) -> str:
     """
-    Handles the 'useitem' command to use an item from the inventory.
+    处理'useitem'命令，使用背包中的道具。
     """
     try:
         player = await player_service.get_player(player_id)
         if not player:
             raise PlayerNotFoundException(f"Player {player_id} not found.")
 
-        # Check if player is in a battle
+        # 检查玩家是否在战斗中
         active_battle = await battle_service.get_player_active_battle(player_id)
         if active_battle:
-             # If in battle, item usage might be different or restricted
-             # TODO: Implement item usage logic specific to battle (S2 refinement)
-             return "你正在战斗中，使用道具的逻辑尚未完全实现。" # Placeholder
+            # 在战斗中使用道具需要通过战斗系统处理
+            # 将参数转换为handle_use_battle_item_command所需的格式
+            try:
+                item_id = int(item_identifier)
+                args = [str(item_id)]
+                
+                if target_arg:
+                    # 如果有目标参数，添加适当的目标类型和ID
+                    # 默认目标是玩家的宝可梦
+                    args.append("player_pokemon")
+                    args.append(target_arg)
+                
+                return await handle_use_battle_item_command(player_id, args)
+            except ValueError:
+                return f"道具ID '{item_identifier}' 必须是一个数字。"
 
-        # If not in battle, use item outside of battle
+        # 如果不在战斗中，使用常规道具逻辑
         message = await item_service.use_item(player_id, item_identifier, target_arg)
         return message
 
@@ -674,7 +912,7 @@ async def handle_useitem_command(player_id: str, item_identifier: str, target_ar
     except PokemonNotFoundException:
         return f"未能找到ID为 {target_arg} 的宝可梦。"
     except Exception as e:
-        logger.error(f"Error handling useitem command for player {player_id} with item {item_identifier}: {e}", exc_info=True)
+        logger.error(f"处理使用道具命令时发生错误: {e}", exc_info=True)
         return "使用道具时发生错误，请稍后再试。"
 
 async def handle_movepokemon_command(player_id: str, pokemon_instance_id: int, target_location: str) -> str:
@@ -760,11 +998,14 @@ async def handle_catch_command(player_id: str, pokemon_instance_id: int) -> str:
 
         # If battle ended (due to catch or other reason), end the battle session
         # Note: attempt_catch_pokemon might set battle.is_active = False if successful
-        updated_battle = await battle_service.get_player_active_battle(player_id) # Re-fetch battle state
+        updated_battle = await battle_service.get_player_active_battle(player_id)  # 重新获取战斗状态
         if not updated_battle or not updated_battle.is_active:
-             # Battle ended, perform cleanup if needed (e.g., remove wild pokemon instance if not caught)
-             # TODO: Implement battle cleanup logic in BattleService (S2 refinement)
-             pass # Cleanup handled by BattleService
+             # 战斗已结束，执行必要的清理（例如，如果未捕获则删除野生宝可梦实例）
+             if updated_battle:
+                 await battle_service.cleanup_battle(updated_battle.battle_id, success)  # 传递捕获结果
+             
+             # 清理已经由 BattleService 处理
+             pass
 
         return message
 
@@ -780,18 +1021,432 @@ async def handle_catch_command(player_id: str, pokemon_instance_id: int) -> str:
         return "尝试捕获时发生错误，请稍后再试。"
 
 
+# --- NPC 和商店交互命令 ---
+
+async def handle_talk_command(player_id: str, args: List[str]) -> str:
+    """
+    处理与 NPC 对话的命令。
+    格式: talk <NPC ID>
+    """
+    service_provider = ServiceProvider.get_instance()
+    dialog_service = service_provider.dialog_service
+    player_service = service_provider.player_service
+    
+    try:
+        if not args or len(args) < 1:
+            return "用法: talk <NPC ID>"
+        
+        try:
+            npc_id = int(args[0])
+        except ValueError:
+            return "NPC ID 必须是一个数字。"
+        
+        # 获取玩家当前位置
+        player = await player_service.get_player(player_id)
+        if not player:
+            return "找不到玩家信息。"
+        
+        # 检查 NPC 是否在玩家当前位置
+        dialog_result = await dialog_service.start_dialog(player_id, npc_id)
+        return dialog_result.message
+        
+    except Exception as e:
+        logger.error(f"处理对话命令时发生错误: {e}", exc_info=True)
+        return "与 NPC 对话时发生错误，请稍后再试。"
+
+
+async def handle_shop_command(player_id: str, args: List[str]) -> str:
+    """
+    处理商店交互的命令。
+    格式: shop <NPC ID> [buy/list] [商品ID] [数量]
+    """
+    service_provider = ServiceProvider.get_instance()
+    item_service = service_provider.item_service
+    player_service = service_provider.player_service
+    dialog_service = service_provider.dialog_service
+    
+    try:
+        if not args or len(args) < 1:
+            return "用法: shop <NPC ID> [buy/list] [商品ID] [数量]"
+        
+        try:
+            npc_id = int(args[0])
+        except ValueError:
+            return "NPC ID 必须是一个数字。"
+        
+        # 获取玩家当前位置
+        player = await player_service.get_player(player_id)
+        if not player:
+            return "找不到玩家信息。"
+        
+        # 检查商店 NPC 是否在玩家当前位置
+        shop_info = await dialog_service.get_shop_info(npc_id)
+        if not shop_info:
+            return f"ID 为 {npc_id} 的 NPC 不是商店。"
+            
+        shop_name = shop_info.get("name", "商店")
+        
+        # 默认显示商品列表
+        action = "list"
+        if len(args) >= 2:
+            action = args[1].lower()
+        
+        if action == "list":
+            # 显示商品列表
+            shop_items = await item_service.get_shop_items(npc_id)
+            if not shop_items:
+                return f"{shop_name}目前没有商品出售。"
+                
+            items_display = [f"{item.item_id}. {item.name} - {item.price}金币：{item.description}" for item in shop_items]
+            return f"{shop_name}的商品列表：\n" + "\n".join(items_display) + "\n\n使用 shop {npc_id} buy <商品ID> [数量] 命令购买商品。"
+        elif action == "buy":
+            # 购买商品
+            if len(args) < 3:
+                return "请指定要购买的商品ID。"
+                
+            try:
+                item_id = int(args[2])
+                quantity = 1
+                if len(args) >= 4:
+                    quantity = int(args[3])
+                    if quantity <= 0:
+                        return "购买数量必须大于0。"
+            except ValueError:
+                return "商品ID和数量必须是数字。"
+                
+            # 执行购买
+            purchase_result = await item_service.purchase_item(player_id, npc_id, item_id, quantity)
+            return f"{shop_name}：{purchase_result}"
+        else:
+            return f"未知的商店操作 '{action}'。可用操作: list, buy"
+            
+    except Exception as e:
+        logger.error(f"处理商店命令时发生错误: {e}", exc_info=True)
+        return "与商店交互时发生错误，请稍后再试。"
+
+
 # --- New Battle Command Handler ---
 
-async def handle_battle_command(player_id: str, command: str, args: List[str], active_battle: Battle) -> str:
+async def handle_run_command(player_id: str, args: List[str]) -> str:
     """
-    Handles commands specifically during a battle.
-    Delegates to the main handle_battle_command function which now takes active_battle.
-    This is a routing function for clarity.
+    处理玩家尝试从战斗中逃跑的命令。
+    格式: run
     """
-    # The main handle_command function already routes battle commands here.
-    # The logic is now within the main handle_battle_command function above.
-    # This placeholder function is just for conceptual clarity in the command structure.
-    pass # This function is effectively replaced by the logic in the main handle_command and the new handle_battle_command above.
+    try:
+        # 获取玩家当前的战斗
+        battle = await battle_service.get_player_active_battle(player_id)
+        if not battle:
+            return "你当前没有处于战斗中。"
+        
+        if battle.current_turn_player_id != player_id:
+            return "当前不是你的回合，无法逃跑。"
+        
+        # 处理逃跑行为
+        success_chance, messages, battle_ended = await battle_service.process_player_action(
+            battle.battle_id,
+            player_id,
+            {
+                "action_type": "run"
+            }
+        )
+        
+        # 如果战斗结束（由于逃跑成功），清理战斗会话
+        if battle_ended:
+            updated_battle = await battle_service.get_player_active_battle(player_id)
+            if updated_battle and not updated_battle.is_active:
+                await battle_service.cleanup_battle(updated_battle.battle_id)
+        
+        return "\n".join(messages)
+        
+    except BattleNotFoundException:
+        return "找不到当前战斗。"
+    except InvalidBattleActionException as e:
+        return str(e)
+    except Exception as e:
+        logger.error(f"处理逃跑命令时发生错误: {e}", exc_info=True)
+        return "尝试逃跑时发生错误，请稍后再试。"
 
+async def handle_use_battle_item_command(player_id: str, args: List[str]) -> str:
+    """
+    处理玩家在战斗中使用道具的命令。
+    格式: use <道具ID> [目标类型] [目标ID]
+    目标类型: player_pokemon, wild_pokemon
+    """
+    service_provider = ServiceProvider.get_instance()
+    battle_service = service_provider.battle_service
+    item_service = service_provider.item_service
+    
+    try:
+        if not args or len(args) < 1:
+            return "请指定要使用的道具ID。"
+        
+        try:
+            item_id = int(args[0])
+        except ValueError:
+            return "道具ID必须是一个数字。"
+        
+        # 获取玩家当前的战斗
+        battle = await battle_service.get_player_active_battle(player_id)
+        if not battle:
+            return "你当前没有处于战斗中。"
+        
+        if battle.current_turn_player_id != player_id:
+            return "当前不是你的回合，无法使用道具。"
+        
+        # 检查玩家是否有该道具
+        has_item = await item_service.check_player_has_item(player_id, item_id)
+        if not has_item:
+            return "你没有指定的道具。"
+        
+        # 获取道具信息
+        item = await item_service.get_item(item_id)
+        if not item:
+            return f"道具 {item_id} 不存在。"
+        
+        # 检查道具是否可在战斗中使用
+        if not item.battle_usable:
+            return f"道具 {item.name} 不能在战斗中使用。"
+        
+        # 确定使用目标
+        target_type = "player_pokemon"  # 默认目标是自己的宝可梦
+        target_id = battle.player_active_pokemon_instance_id
+        
+        if len(args) >= 3:
+            target_type = args[1]
+            try:
+                target_id = int(args[2])
+            except ValueError:
+                raise InvalidBattleActionException("目标ID必须是一个数字。")
+        
+        # 验证目标类型
+        if target_type not in ["player_pokemon", "wild_pokemon"]:
+            raise InvalidBattleActionException("无效的目标类型。有效的目标类型: player_pokemon, wild_pokemon")
+        
+        # 如果目标是野生宝可梦，使用野生宝可梦ID
+        if target_type == "wild_pokemon":
+            if not battle.wild_pokemon_instance_id:
+                raise InvalidBattleActionException("当前战斗没有野生宝可梦。")
+            target_id = battle.wild_pokemon_instance_id
+            
+        # 处理使用道具行为
+        action = {
+            "action_type": "item",
+            "item_id": item_id,
+            "target_instance_id": target_id
+        }
 
-# TODO: Add commands for interacting with NPCs, shops, etc. (S3 refinement) 
+        # 创建 PlayerCommands 实例并调用方法
+        player_commands = PlayerCommands(battle_service)
+        battle_outcome = await player_commands.handle_player_action(player_id, action)
+
+        
+        # 解析战斗结果
+        messages = battle_outcome.get("messages", [])
+        message_text = "\n".join([msg.message if hasattr(msg, 'message') else str(msg) for msg in messages])
+        
+        return message_text or f"使用了 {item.name}。"
+        
+    except Exception as e:
+        logger.error(f"处理战斗中使用道具命令时发生错误: {e}", exc_info=True)
+        return "使用道具时发生错误，请稍后再试。"
+
+async def handle_replace_skill_command(player_id: str, args: List[str]) -> str:
+    """
+    处理玩家替换宝可梦技能的命令。
+    格式: replace_skill [宝可梦实例ID] [要替换的技能ID] [新技能ID]
+    """
+    try:
+        if len(args) < 3:
+            return "请提供宝可梦实例ID、要替换的技能ID和新技能ID。"
+        
+        try:
+            pokemon_instance_id = int(args[0])
+            old_skill_id = int(args[1])
+            new_skill_id = int(args[2])
+        except ValueError:
+            return "宝可梦实例ID和技能ID必须是数字。"
+        
+        # 获取玩家宝可梦
+        pokemon = await pokemon_service.get_pokemon_by_id(pokemon_instance_id)
+        if not pokemon:
+            return f"找不到ID为 {pokemon_instance_id} 的宝可梦。"
+        
+        # 验证这个宝可梦属于该玩家
+        if pokemon.player_id != player_id:
+            return "这不是你的宝可梦。"
+        
+        # 验证宝可梦有这个技能
+        has_old_skill = False
+        for skill in pokemon.skills:
+            if skill.skill_id == old_skill_id:
+                has_old_skill = True
+                break
+        
+        if not has_old_skill:
+            return f"该宝可梦没有ID为 {old_skill_id} 的技能。"
+        
+        # 验证新技能是否存在
+        new_skill = await battle_service.get_skill_data(new_skill_id)
+        if not new_skill:
+            return f"找不到ID为 {new_skill_id} 的技能。"
+        
+        # 替换技能
+        result = await pokemon_service.replace_pokemon_skill(
+            pokemon_instance_id, 
+            old_skill_id, 
+            new_skill_id
+        )
+        
+        return f"成功将 {pokemon.nickname} 的技能替换为 {new_skill.name}！"
+        
+    except PokemonNotInCollectionException:
+        return "该宝可梦不属于你的收藏。"
+    except SkillNotFoundException:
+        return "找不到指定的技能。"
+    except Exception as e:
+        logger.error(f"处理技能替换命令时发生错误: {e}", exc_info=True)
+        return "替换技能时发生错误，请稍后再试。"
+
+async def handle_bag_command(player_id: str, args: List[str]) -> str:
+    """
+    处理查看背包的命令。
+    格式: bag
+    """
+    try:
+        player = await player_service.get_player(player_id)
+        if not player:
+            return "找不到玩家信息。"
+        
+        # 检查玩家是否在战斗中
+        battle = await battle_service.get_player_active_battle(player_id)
+        
+        if battle:
+            # 玩家在战斗中，只显示战斗中可用的道具
+            battle_usable_items = []
+            
+            for item_id_str, count in player.inventory.items():
+                if count > 0:
+                    item_id = int(item_id_str)
+                    item = await item_service.get_item(item_id)
+                    
+                    # 检查道具是否可在战斗中使用
+                    if item and item.battle_usable:
+                        battle_usable_items.append(f"{item.item_id}. {item.name} x{count} - {item.description}")
+            
+            if battle_usable_items:
+                return "你的战斗背包：\n" + "\n".join(battle_usable_items) + "\n\n使用 use <道具ID> [目标类型] [目标ID] 命令使用道具。"
+            else:
+                return "你的背包中没有可在战斗中使用的道具。"
+        else:
+            # 玩家不在战斗中，显示所有道具
+            # 已有代码...
+            pass
+
+    except PlayerNotFoundException:
+        return "找不到玩家信息。"
+    except Exception as e:
+        logger.error(f"Error handling bag command for player {player_id}: {e}", exc_info=True)
+        return "查询背包时发生错误，请稍后再试。"
+
+async def handle_battle_status_command(player_id: str, args: List[str]) -> str:
+    """
+    显示当前战斗状态的详细信息。
+    格式: status
+    """
+    try:
+        battle = await battle_service.get_player_active_battle(player_id)
+        if not battle:
+            return "你当前没有处于战斗中。"
+        
+        # 获取玩家宝可梦信息
+        player_pokemon = battle.player_active_pokemon_instance
+        if not player_pokemon:
+            return "你没有派出任何宝可梦。"
+        
+        # 获取对手宝可梦信息
+        opponent_pokemon = battle.wild_active_pokemon_instance if battle.is_wild_battle else battle.opponent_active_pokemon_instance
+        if not opponent_pokemon:
+            return "对手没有派出任何宝可梦。"
+        
+        # 构建状态信息
+        battle_info = [
+            f"【战斗状态】",
+            f"战斗类型: {'野生宝可梦战斗' if battle.is_wild_battle else '训练师战斗'}",
+            f"当前回合: {battle.current_turn}",
+            f"当前行动方: {'你' if battle.current_turn_player_id == player_id else '对手'}",
+            f"\n【你的宝可梦】",
+            f"{player_pokemon.nickname or player_pokemon.name} (Lv.{player_pokemon.level})",
+            f"HP: {player_pokemon.current_hp}/{player_pokemon.max_hp}",
+            f"状态: {player_pokemon.status_condition or '正常'}"
+        ]
+        
+        # 添加玩家宝可梦的状态效果
+        if player_pokemon.status_effects:
+            battle_info.append("状态效果:")
+            for effect in player_pokemon.status_effects:
+                battle_info.append(f"- {effect.name}: {effect.description} (剩余回合: {effect.remaining_turns})")
+        
+        battle_info.extend([
+            f"\n【对手宝可梦】",
+            f"{opponent_pokemon.name} (Lv.{opponent_pokemon.level})",
+            f"HP: {opponent_pokemon.current_hp}/{opponent_pokemon.max_hp}",
+            f"状态: {opponent_pokemon.status_condition or '正常'}"
+        ])
+        
+        # 添加对手宝可梦的状态效果
+        if opponent_pokemon.status_effects:
+            battle_info.append("状态效果:")
+            for effect in opponent_pokemon.status_effects:
+                battle_info.append(f"- {effect.name}: {effect.description} (剩余回合: {effect.remaining_turns})")
+        
+        # 添加场地效果
+        if battle.field_effects:
+            battle_info.append("\n【场地效果】")
+            for effect in battle.field_effects:
+                battle_info.append(f"- {effect.name}: {effect.description} (剩余回合: {effect.remaining_turns})")
+        
+        return "\n".join(battle_info)
+        
+    except Exception as e:
+        logger.error(f"获取战斗状态时发生错误: {e}", exc_info=True)
+        return "获取战斗状态时发生错误，请稍后再试。"
+
+async def handle_encounter(player_id: str, wild_pokemon: Pokemon) -> str:
+    """处理野外遇敌事件"""
+    service_provider = ServiceProvider.get_instance()
+    player_service = service_provider.player_service
+    battle_service = service_provider.battle_service
+    
+    try:
+        # 获取玩家信息
+        player = await player_service.get_player(player_id)
+        if not player:
+            return "找不到玩家信息。"
+        
+        # 检查玩家是否有可用宝可梦
+        if not player.party_pokemon_ids:
+            # 玩家没有宝可梦，野生宝可梦逃跑
+            return f"一只野生的 {wild_pokemon.name} (Lv.{wild_pokemon.level}) 出现了！但你没有宝可梦，它很快就跑掉了。"
+        
+        # 检查玩家的宝可梦是否都已失去战斗能力
+        party_pokemon = await player_service.get_player_party(player_id)
+        active_pokemon = None
+        
+        for pokemon in party_pokemon:
+            if pokemon.current_hp > 0:
+                active_pokemon = pokemon
+                break
+        
+        if not active_pokemon:
+            # 玩家的所有宝可梦都已失去战斗能力
+            return f"一只野生的 {wild_pokemon.name} (Lv.{wild_pokemon.level}) 出现了！但你的所有宝可梦都已失去战斗能力，它很快就跑掉了。"
+        
+        # 创建战斗
+        battle_id = await battle_service.create_wild_battle(player_id, wild_pokemon.instance_id, active_pokemon.instance_id)
+        
+        # 返回战斗开始信息
+        return f"一只野生的 {wild_pokemon.name} (Lv.{wild_pokemon.level}) 出现了！\n{active_pokemon.nickname or active_pokemon.name}，就决定是你了！\n\n使用 'fight <技能ID>' 命令战斗，或使用 'run' 尝试逃跑。"
+        
+    except Exception as e:
+        logger.error(f"处理遇敌时发生错误: {e}", exc_info=True)
+        return "处理遇敌时发生错误，请稍后再试。"

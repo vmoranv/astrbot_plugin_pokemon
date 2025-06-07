@@ -1,7 +1,6 @@
 from typing import Optional, Dict, Any
-
 from backend.models.pokemon import Pokemon
-from backend.models.events import EvolutionEvent, BattleMessageEvent
+from backend.models.event import EvolutionEvent, BattleMessageEvent
 from backend.models.item import Item
 from backend.data_access.metadata_loader import MetadataRepository
 from backend.core.pokemon_factory import PokemonFactory

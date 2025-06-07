@@ -50,6 +50,8 @@ class PlayerService:
         """
         player = await self.get_player(player_id)
         party_pokemon = []
+        orphaned_ids = [] # 记录孤立的ID
+
         for pokemon_id in player.party_pokemon_ids:
             try:
                 pokemon = await self.pokemon_repo.get_pokemon_instance_by_id(pokemon_id)
@@ -57,10 +59,17 @@ class PlayerService:
                     party_pokemon.append(pokemon)
                 else:
                     logger.error(f"Pokemon instance {pokemon_id} in player {player_id}'s party not found.")
-                    # TODO: Handle orphaned pokemon IDs in player data (S1 refinement)
+                    orphaned_ids.append(pokemon_id)
             except PokemonNotFoundException:
-                 logger.error(f"Pokemon instance {pokemon_id} in player {player_id}'s party not found.")
-                 # TODO: Handle orphaned pokemon IDs in player data (S1 refinement)
+                logger.error(f"Pokemon instance {pokemon_id} in player {player_id}'s party not found.")
+                orphaned_ids.append(pokemon_id)
+
+        # 处理孤立的宝可梦ID
+        if orphaned_ids:
+            # 从玩家数据中移除这些孤立ID
+            player.party_pokemon_ids = [pid for pid in player.party_pokemon_ids if pid not in orphaned_ids]
+            await self.save_player(player)
+            logger.info(f"Removed orphaned Pokemon IDs {orphaned_ids} from player {player_id}'s party")
 
         return party_pokemon
 
@@ -70,6 +79,8 @@ class PlayerService:
         """
         player = await self.get_player(player_id)
         box_pokemon = []
+        orphaned_ids = [] # 记录孤立的ID
+        
         for pokemon_id in player.box_pokemon_ids:
             try:
                 pokemon = await self.pokemon_repo.get_pokemon_instance_by_id(pokemon_id)
@@ -77,11 +88,18 @@ class PlayerService:
                     box_pokemon.append(pokemon)
                 else:
                     logger.error(f"Pokemon instance {pokemon_id} in player {player_id}'s box not found.")
-                    # TODO: Handle orphaned pokemon IDs in player data (S1 refinement)
+                    orphaned_ids.append(pokemon_id)
             except PokemonNotFoundException:
-                 logger.error(f"Pokemon instance {pokemon_id} in player {player_id}'s box not found.")
-                 # TODO: Handle orphaned pokemon IDs in player data (S1 refinement)
-
+                logger.error(f"Pokemon instance {pokemon_id} in player {player_id}'s box not found.")
+                orphaned_ids.append(pokemon_id)
+        
+        # 处理孤立的宝可梦ID
+        if orphaned_ids:
+            # 从玩家数据中移除这些孤立ID
+            player.box_pokemon_ids = [pid for pid in player.box_pokemon_ids if pid not in orphaned_ids]
+            await self.save_player(player)
+            logger.info(f"Removed orphaned Pokemon IDs {orphaned_ids} from player {player_id}'s box")
+        
         return box_pokemon
 
     async def add_pokemon_to_player(self, player_id: str, pokemon_instance_id: int) -> Player:

@@ -1,31 +1,3 @@
-# backend/core/game_logic.py
-
-# This module orchestrates calls to services to manage game flow.
-# It should not contain direct database access or complex calculations.
-
-# Example:
-# async def start_new_game(player_id: str, player_name: str):
-#     """Orchestrates the process of starting a new game for a player."""
-#     from backend.services.player_service import PlayerService # Import services here
-#     player_service = PlayerService()
-#     await player_service.create_player(player_id, player_name)
-#     # Potentially add a starter pokemon, place player in start location, etc.
-#     # await player_service.add_pokemon_to_player(...)
-#     # await player_service.update_player_location(...)
-#     pass
-
-# async def process_command(player_id: str, command: str, args: list):
-#     """Orchestrates the processing of a player command."""
-#     # This might be handled more directly by commands.command_handler,
-#     # but complex command sequences could be managed here.
-#     pass
-
-# Add other game flow orchestration functions
-
-"""
-游戏核心逻辑协调器。负责编排不同逻辑组件和服务之间的协作。
-"""
-
 import logging
 import random
 from typing import List, Dict, Any, Optional, Tuple, Union
@@ -40,12 +12,13 @@ from backend.core.pet.pet_catch import calculate_catch_success
 from backend.models.events import (
     BattleEvent, LevelUpEvent, StatChangeEvent, EvolutionEvent, 
     SkillLearnedEvent, BattleMessageEvent, ExperienceGainedEvent,
-    SkillForgottenEvent # 新增导入
+    SkillForgottenEvent, SkillReplacementRequiredEvent # 新增导入
 )
 from backend.core.pet.evolution_handler import EvolutionHandler
-from backend.core.pokemon_factory import PokemonFactory
+from backend.core.services.pokemon_factory import PokemonFactory
 from backend.data_access.metadata_loader import MetadataRepository
 from backend.models.skill import Skill
+from backend.models.item import Item
 
 logger = logging.getLogger(__name__)
 
@@ -303,8 +276,7 @@ class GameLogic:
                 evolution_event = await self._evolution_handler.check_and_process_evolution(pokemon)
                 if evolution_event:
                     events.append(evolution_event)
-                    # 进化后可能学会新技能 (TODO S124: 进化后的技能学习逻辑)
-                    # S124: 进化后检查技能学习
+
                     logger.info(f"宝可梦 {pokemon.name} 进化完成，检查等级 {pokemon.level} 是否有可学习的技能。")
                     skills_learned_after_evolution = await self._check_learnable_skills(pokemon) # pokemon 对象已被修改为进化后的形态
                     if skills_learned_after_evolution:
@@ -349,7 +321,7 @@ class GameLogic:
                         # 尝试学习技能
                         # learn_skill 应该处理技能已满的情况 (返回 False 或抛出异常)
                         # 目前简化处理，直接添加，或者如果技能已满则跳过
-                        if len(pokemon.skills) < 4: # 假设最多4个技能
+                        if len(pokemon.skills) < 5: 
                             pokemon.skills.append(skill_to_learn_obj)
                             # 更新宝可梦的技能列表后，可能需要持久化。Service层会处理。
                             message = f"{pokemon.nickname} 学会了 {skill_to_learn_obj.name}！"
@@ -424,4 +396,134 @@ class GameLogic:
                             ))
                     else:
                         logger.warning(f"无法找到技能 ID {skill_id_to_learn} 的数据，宝可梦 {pokemon.nickname} 无法学习。")
+        return events
+
+    async def process_time_based_events(self, player: Player) -> List[Dict[str, Any]]:
+        """
+        处理基于时间的事件，如宝可梦状态恢复、特殊事件触发等。
+        
+        Args:
+            player: 玩家对象
+            
+        Returns:
+            List[Dict[str, Any]]: 事件处理结果列表
+        """
+        events = []
+        
+        # 处理宝可梦状态恢复
+        for pokemon_id in player.party_pokemon_ids:
+            # 这里需要通过服务层获取宝可梦实例，这是一个示例逻辑
+            # 实际实现需要在service层中调用此方法并传入完整的宝可梦对象
+            # 或通过传递pokemon_repo让游戏逻辑层获取宝可梦对象
+            pokemon = None  # 在实际实现中，这里会通过repo获取到宝可梦实例
+            
+            if pokemon and pokemon.status_effects:
+                # 检查状态效果是否应该恢复
+                for status in pokemon.status_effects[:]:  # 使用切片创建副本进行迭代
+                    if status.is_time_based and status.should_recover():
+                        recover_messages = pokemon.remove_status_effect(status.status_id)
+                        events.append({
+                            "type": "status_recovered",
+                            "pokemon_instance_id": pokemon_id,
+                            "status_name": status.name,
+                            "messages": recover_messages
+                        })
+        
+        # 处理特殊时间事件（如季节变化、节日活动等）
+        # 这部分逻辑在实际游戏中根据需求实现
+        
+        return events
+
+    async def check_evolution_eligibility(self, pokemon: Pokemon, trigger_type: str = "level_up", 
+                                        item: Optional[Item] = None) -> Optional[Dict[str, Any]]:
+        """
+        检查宝可梦是否满足进化条件。
+        
+        Args:
+            pokemon: 宝可梦对象
+            trigger_type: 触发类型，如"level_up"、"trade"、"item"等
+            item: 如果触发类型为"item"，则提供使用的道具
+            
+        Returns:
+            Optional[Dict[str, Any]]: 如果满足进化条件，返回进化信息；否则返回None
+        """
+        # 使用进化处理器检查进化条件
+        evolution_event = await self._evolution_handler.check_evolution_eligibility(
+            pokemon, trigger_type, item
+        )
+        
+        if evolution_event:
+            return {
+                "can_evolve": True,
+                "pokemon_instance_id": pokemon.instance_id,
+                "current_species_id": pokemon.race.race_id if pokemon.race else None,
+                "evolution_species_id": evolution_event.evolution_species_id,
+                "evolution_name": evolution_event.evolution_name,
+                "trigger_type": trigger_type
+            }
+        
+        return None
+
+    async def handle_skill_learning(self, pokemon: Pokemon, level: int) -> List[Dict[str, Any]]:
+        """
+        处理宝可梦在特定等级可能学习的技能。
+        
+        Args:
+            pokemon: 宝可梦对象
+            level: 当前等级
+            
+        Returns:
+            List[Dict[str, Any]]: 技能学习相关事件列表
+        """
+        events = []
+        
+        # 获取该宝可梦种族在当前等级可学习的技能
+        if not pokemon.race:
+            logger.warning(f"无法处理技能学习：宝可梦 {pokemon.nickname} 缺少种族信息")
+            return []
+        
+        learnable_skills = await self._metadata_repo.get_skills_learnable_at_level(
+            pokemon.race.race_id, level
+        )
+        
+        for skill_data in learnable_skills:
+            skill_id = skill_data.get("skill_id")
+            skill_name = skill_data.get("name", "未知技能")
+            
+            # 检查宝可梦是否已经有这个技能
+            if any(s.skill_id == skill_id for s in pokemon.skills):
+                logger.debug(f"宝可梦 {pokemon.nickname} 已经学会了技能 {skill_name}")
+                continue
+            
+            # 检查技能槽位
+            if len(pokemon.skills) < 4:
+                # 直接学习技能
+                skill = await self._metadata_repo.get_skill(skill_id)
+                if skill:
+                    pokemon.skills.append(skill)
+                    events.append({
+                        "type": "skill_learned",
+                        "pokemon_instance_id": pokemon.instance_id,
+                        "pokemon_name": pokemon.nickname,
+                        "skill_id": skill_id,
+                        "skill_name": skill_name,
+                        "message": f"{pokemon.nickname} 学会了 {skill_name}！"
+                    })
+            else:
+                # 需要替换技能，创建一个需要玩家决定的事件
+                current_skills = [
+                    {"skill_id": s.skill_id, "name": s.name, "pp": s.max_pp, "description": s.description}
+                    for s in pokemon.skills
+                ]
+                
+                events.append({
+                    "type": "skill_replacement_required",
+                    "pokemon_instance_id": pokemon.instance_id,
+                    "pokemon_name": pokemon.nickname,
+                    "new_skill_id": skill_id,
+                    "new_skill_name": skill_name,
+                    "current_skills": current_skills,
+                    "message": f"{pokemon.nickname} 想学习 {skill_name}，但已经学会了4个技能。请选择要忘记的技能。"
+                })
+        
         return events

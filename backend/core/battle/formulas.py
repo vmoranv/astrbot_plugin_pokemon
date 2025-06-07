@@ -29,31 +29,21 @@ def calculate_stats(pokemon: Pokemon, race_data: Race) -> Dict[str, int]:
     Calculates a pokemon's current stats based on its level, IVs, EVs, Nature, and Race base stats.
     Returns a dictionary of calculated stats.
     """
-    # This is a simplified placeholder. Actual Pokemon stat calculation is complex.
-    # Formula depends on HP vs other stats.
-    # HP: (((Base_HP * 2 + IV_HP + EV_HP/4) * Level) / 100) + Level + 10
-    # Other Stats: ((((Base_Stat * 2 + IV_Stat + EV_Stat/4) * Level) / 100) + 5) * Nature_Modifier
-
-    base_stats = race_data.base_stats # Assuming base_stats is a dict on Race model
+    base_stats = race_data.base_stats
     level = pokemon.level
     ivs = pokemon.ivs
     evs = pokemon.evs
-    nature = pokemon.nature # Assuming nature is a string or object
+    nature = pokemon.nature
 
-    # Need Nature modifiers data - this could be a constant lookup or passed in.
-    # For simplicity, let's assume a neutral nature modifier of 1.0 for all stats for MVP.
-    # A real implementation needs a lookup for nature effects.
-    nature_modifiers = {
-        "attack": 1.0, "defense": 1.0, "special_attack": 1.0, "special_defense": 1.0, "speed": 1.0
-    }
-    # Example: If nature is "adamant", nature_modifiers["attack"] = 1.1, nature_modifiers["special_attack"] = 0.9
-
+    # 实现实际的性格修饰符查找
+    nature_modifiers = get_nature_modifiers(nature)
+    
     calculated_stats = {}
 
     # Calculate HP
     base_hp = base_stats.get("hp", 1)
     iv_hp = ivs.get("hp", 0)
-    ev_hp = evs.get(hp, 0)
+    ev_hp = evs.get("hp", 0)
     calculated_stats["hp"] = math.floor(((base_hp * 2 + iv_hp + math.floor(ev_hp/4)) * level) / 100) + level + 10
 
     # Calculate other stats
@@ -65,6 +55,80 @@ def calculate_stats(pokemon: Pokemon, race_data: Race) -> Dict[str, int]:
         calculated_stats[stat] = math.floor((math.floor(((base_stat * 2 + iv_stat + math.floor(ev_stat/4)) * level) / 100) + 5) * nature_mod)
 
     return calculated_stats
+
+def get_nature_modifiers(nature: str) -> Dict[str, float]:
+    """
+    根据宝可梦的性格返回对应的能力修饰值
+    
+    性格影响规则：
+    - 每种性格会提高一个能力值10%（乘以1.1）
+    - 同时降低另一个能力值10%（乘以0.9）
+    - 有些性格是中性的，不会改变任何能力值
+    
+    Args:
+        nature: 宝可梦的性格名称
+        
+    Returns:
+        包含各能力值修饰系数的字典
+    """
+    # 默认所有修饰符为1.0（不变）
+    modifiers = {
+        "attack": 1.0, 
+        "defense": 1.0, 
+        "special_attack": 1.0, 
+        "special_defense": 1.0, 
+        "speed": 1.0
+    }
+    
+    # 性格对应的能力值修饰（提高和降低）
+    nature_effects = {
+        # 提高攻击
+        "勇敢": {"increase": "attack", "decrease": "speed"},
+        "固执": {"increase": "attack", "decrease": "special_attack"},
+        "顽皮": {"increase": "attack", "decrease": "defense"},
+        "淘气": {"increase": "attack", "decrease": "special_defense"},
+        
+        # 提高防御
+        "大胆": {"increase": "defense", "decrease": "attack"},
+        "慎重": {"increase": "defense", "decrease": "speed"},
+        "害羞": {"increase": "defense", "decrease": "special_attack"},
+        "马虎": {"increase": "defense", "decrease": "special_defense"},
+        
+        # 提高特攻
+        "内敛": {"increase": "special_attack", "decrease": "attack"},
+        "温和": {"increase": "special_attack", "decrease": "defense"},
+        "冷静": {"increase": "special_attack", "decrease": "speed"},
+        "温顺": {"increase": "special_attack", "decrease": "special_defense"},
+        
+        # 提高特防
+        "温和": {"increase": "special_defense", "decrease": "attack"},
+        "慢吞吞": {"increase": "special_defense", "decrease": "defense"},
+        "淘气": {"increase": "special_defense", "decrease": "special_attack"},
+        "稳重": {"increase": "special_defense", "decrease": "speed"},
+        
+        # 提高速度
+        "急躁": {"increase": "speed", "decrease": "attack"},
+        "爽朗": {"increase": "speed", "decrease": "defense"},
+        "开朗": {"increase": "speed", "decrease": "special_attack"},
+        "天真": {"increase": "speed", "decrease": "special_defense"},
+        
+        # 中性性格（不改变任何能力值）
+        "调皮": {},
+        "认真": {},
+        "坦率": {},
+        "勤奋": {},
+        "实干": {}
+    }
+    
+    # 如果性格在字典中，应用相应的修饰
+    if nature in nature_effects:
+        effect = nature_effects[nature]
+        if "increase" in effect:
+            modifiers[effect["increase"]] = 1.1
+        if "decrease" in effect:
+            modifiers[effect["decrease"]] = 0.9
+    
+    return modifiers
 
 # Mapping from attribute CSV column names to multipliers
 EFFECTIVENESS_MULTIPLIERS = {
@@ -78,36 +142,71 @@ def calculate_damage(
     attacker: Pokemon,
     defender: Pokemon,
     skill: Skill,
-    effectiveness: float,
     is_critical: bool,
-    field_state: Dict[str, Any] # Placeholder for field effects
+    effectiveness: float,
+    field_state: Dict[str, Any]
 ) -> int:
     """
-    Calculates the damage dealt by a skill.
-
+    计算技能造成的伤害。
+    
     Args:
-        attacker: The attacking Pokemon.
-        defender: The defending Pokemon.
-        skill: The skill being used.
-        effectiveness: The type effectiveness multiplier.
-        is_critical: Whether the hit is critical.
-        field_state: The current state of the battle field (weather, terrain, etc.).
-
+        attacker: 攻击方宝可梦。
+        defender: 防守方宝可梦。
+        skill: 使用的技能。
+        is_critical: 是否暴击。
+        effectiveness: 属性相克效果。
+        field_state: 场地状态。
+        
     Returns:
-        The calculated damage amount.
+        造成的伤害值。
     """
-    # Simplified damage calculation for now
-    # TODO: Implement full damage formula including stats, level, STAB, items, abilities, field effects (S108 refinement)
-    base_power = skill.power if skill.power is not None else 0
-    # Assuming a basic formula: Damage = (Base Power * Att / Def * Modifier) * Effectiveness * Critical
-    # This is a placeholder and needs to be replaced with a proper formula.
-    # For now, just apply effectiveness and critical hit.
-    damage = base_power * effectiveness
+    # 获取技能的基础威力和类型
+    base_power = skill.power
+    if base_power is None or base_power <= 0:
+        return 0  # 非攻击技能不造成伤害
+    
+    # 获取攻击方和防守方的等级
+    attacker_level = attacker.level
+    
+    # 获取攻击方的攻击力和防守方的防御力
+    if skill.damage_type == "physical":
+        attack_stat = attacker.attack
+        defense_stat = defender.defense
+    else:  # special
+        attack_stat = attacker.special_attack
+        defense_stat = defender.special_defense
+    
+    # 计算基础伤害
+    base_damage = ((2 * attacker_level / 5 + 2) * base_power * attack_stat / defense_stat) / 50 + 2
+    
+    # 应用随机因子（0.85-1.0）
+    random_factor = 0.85 + random.random() * 0.15
+    base_damage *= random_factor
+    
+    # 应用STAB加成（Same Type Attack Bonus）
+    if skill.type_id in attacker.type_ids:
+        base_damage *= 1.5
+    
+    # 应用暴击加成
     if is_critical:
-        damage *= 1.5 # Standard critical hit multiplier
-
-    # Ensure damage is an integer and non-negative
-    return max(0, int(damage))
+        base_damage *= 1.5
+    
+    # 应用属性相克效果
+    base_damage *= effectiveness
+    
+    # 应用场地效果
+    if field_state.get("weather") == "rain" and skill.type_id == 2:  # 假设type_id 2是水系
+        base_damage *= 1.5
+    elif field_state.get("weather") == "sunny" and skill.type_id == 1:  # 假设type_id 1是火系
+        base_damage *= 1.5
+    
+    # 应用道具效果
+    held_item = attacker.held_item
+    if held_item and held_item.effect_type == "boost_damage":
+        base_damage *= 1.1  # 增加10%伤害
+    
+    # 确保伤害为整数且非负
+    return max(0, int(base_damage))
 
 def calculate_type_effectiveness(
     attacking_type_id: int,
@@ -164,63 +263,115 @@ def calculate_type_effectiveness(
 
 def check_accuracy(skill_accuracy: Optional[int], attacker_accuracy_stage: int, defender_evasion_stage: int, field_state: Dict[str, Any]) -> bool:
     """
-    Checks if a skill hits based on accuracy, evasion, and field effects.
-
+    检查技能是否命中，考虑命中率、精度等级、闪避等级和场地效果。
+    
     Args:
-        skill_accuracy: The skill's base accuracy (None for moves that never miss).
-        attacker_accuracy_stage: The attacker's accuracy stage.
-        defender_evasion_stage: The defender's evasion stage.
-        field_state: The current state of the battle field (weather, terrain, etc.).
-
+        skill_accuracy: 技能的基础命中率（None表示必中）。
+        attacker_accuracy_stage: 攻击方的命中等级。
+        defender_evasion_stage: 防守方的闪避等级。
+        field_state: 战场状态（天气、场地等）。
+        
     Returns:
-        True if the skill hits, False otherwise.
+        True表示命中，False表示未命中。
     """
-    # TODO: Implement accuracy calculation including stat stages, abilities, items, field effects (S112 refinement)
     if skill_accuracy is None:
-        return True # Moves with None accuracy never miss
+        return True  # 必中技能
 
-    # Simplified check for now, ignoring stat stages and field effects
-    hit_chance = skill_accuracy / 100.0
-    return random.random() < hit_chance
+    # 计算命中率和闪避的修正系数
+    accuracy_multiplier = calculate_accuracy_evasion_modifier(attacker_accuracy_stage)
+    evasion_multiplier = calculate_accuracy_evasion_modifier(defender_evasion_stage)
+    
+    # 考虑场地效果修正
+    field_multiplier = 1.0
+    
+    # 天气效果
+    weather = field_state.get("weather")
+    if weather == "heavy_rain" and skill_accuracy < 100:  # 大雨降低非必中技能的命中率
+        field_multiplier *= 0.8
+    elif weather == "fog" and skill_accuracy < 100:  # 雾天降低非必中技能的命中率
+        field_multiplier *= 0.9
+        
+    # 最终命中率计算
+    final_accuracy = (skill_accuracy / 100.0) * accuracy_multiplier / evasion_multiplier * field_multiplier
+    
+    # 限制最终命中率在合理范围内
+    final_accuracy = min(max(final_accuracy, 0.1), 1.0)  # 最低10%命中率，最高100%
+    
+    return random.random() < final_accuracy
+
+def calculate_accuracy_evasion_modifier(stage: int) -> float:
+    """
+    计算命中率/闪避率的等级修正系数。
+    
+    Args:
+        stage: 能力等级，范围-6到+6。
+        
+    Returns:
+        修正系数。
+    """
+    if stage >= 0:
+        return (3 + stage) / 3.0
+    else:
+        return 3.0 / (3 - stage)
 
 def check_critical_hit(attacker: Pokemon, skill_critical_rate: int) -> bool:
     """
-    Checks if a skill is a critical hit.
-
+    检查技能是否造成暴击。
+    
     Args:
-        attacker: The attacking Pokemon.
-        skill_critical_rate: The skill's critical hit ratio (e.g., 1, 2, 3).
-
+        attacker: 攻击方宝可梦。
+        skill_critical_rate: 技能的暴击率等级。
+        
     Returns:
-        True if it's a critical hit, False otherwise.
+        True表示暴击，False表示未暴击。
     """
-    # TODO: Implement critical hit calculation including critical hit ratio, abilities, items (S109 refinement)
-    # Simplified check based on skill critical rate
-    # Assuming critical_rate 1 = 6.25%, 2 = 12.5%, 3 = 50% (standard Pokemon rates)
-    # This needs to be confirmed or adjusted based on game design.
+    # 基础暴击率
     critical_chance = 0.0
+    
+    # 根据技能暴击等级设置基础概率
     if skill_critical_rate == 1:
-        critical_chance = 1/16 # 6.25%
+        critical_chance = 1/16  # 6.25%
     elif skill_critical_rate == 2:
-        critical_chance = 1/8 # 12.5%
+        critical_chance = 1/8   # 12.5%
     elif skill_critical_rate == 3:
-        critical_chance = 1/2 # 50%
-    # Add more rates if needed
-
+        critical_chance = 1/4   # 25%
+    elif skill_critical_rate == 4:
+        critical_chance = 1/3   # 33.3%
+    elif skill_critical_rate >= 5:
+        critical_chance = 1/2   # 50%
+    
+    # 考虑持有道具的效果
+    held_item = attacker.held_item
+    if held_item:
+        if held_item.effect_type == "increase_critical_rate":
+            critical_chance *= 1.5  # 增加50%暴击率
+    
+    # 考虑特性效果
+    ability = attacker.ability
+    if ability and ability.name == "狙击手":  # Sniper特性
+        critical_chance *= 1.5
+    
+    # 限制最终暴击率
+    critical_chance = min(critical_chance, 0.5)  # 最高50%暴击率
+    
     return random.random() < critical_chance
 
-def calculate_stat_stage_modifier(stage: int) -> float:
+def calculate_stat_stage_modifier(stage: int, stat_type: str = "normal") -> float:
     """
-    Calculates the stat modifier based on the stat stage.
-
+    计算能力值等级的修正系数。
+    
     Args:
-        stage: The stat stage (-6 to +6).
-
+        stage: 能力等级，范围-6到+6。
+        stat_type: 能力类型，"normal"表示常规能力，"accuracy_evasion"表示命中/闪避。
+        
     Returns:
-        The stat modifier (e.g., 1.5 for +2 Attack).
+        修正系数。
     """
-    # TODO: Implement stat stage modifiers for different stats (accuracy/evasion are different) (S119 refinement)
-    # Standard stat stage modifiers (Attack, Defense, Sp. Atk, Sp. Def, Speed)
+    # 命中/闪避使用不同的公式
+    if stat_type == "accuracy_evasion":
+        return calculate_accuracy_evasion_modifier(stage)
+    
+    # 常规能力值（攻击、防御、特攻、特防、速度）
     if stage > 0:
         return (2 + stage) / 2.0
     elif stage < 0:
@@ -228,354 +379,291 @@ def calculate_stat_stage_modifier(stage: int) -> float:
     else:
         return 1.0
 
-def get_effective_stat(pokemon: Pokemon, stat_type: str) -> int:
+def get_effective_stat(pokemon: Pokemon, stat_type: str, race_data: Dict[str, Any]) -> int:
     """
-    Calculates the effective stat value considering base stats, IVs, EVs, nature, and stat stages.
-
+    计算考虑基础能力值、个体值、努力值、性格和能力等级的有效能力值。
+    
     Args:
-        pokemon: The Pokemon instance.
-        stat_type: The type of stat (e.g., "attack", "defense").
-
+        pokemon: 宝可梦实例。
+        stat_type: 能力类型（"hp"、"attack"、"defense"、"special_attack"、"special_defense"、"speed"）。
+        race_data: 宝可梦种族数据，包含基础能力值。
+        
     Returns:
-        The effective stat value.
+        有效能力值。
     """
-    # TODO: Implement full effective stat calculation (S111 refinement)
-    # This requires accessing base stats from Race, IVs, EVs, Nature modifier, and stat stages.
-    # For now, return a placeholder or base stat + stage modifier effect on base stat
-    base_stat = getattr(pokemon, stat_type, 0) # Get base stat from Pokemon instance (which should include IVs/EVs/Nature eventually)
-    stage = pokemon.stat_stages.get(stat_type, 0)
-    modifier = calculate_stat_stage_modifier(stage)
-
-    # This is a very simplified approach. A proper implementation needs base stats from Race, IVs, EVs, Nature.
-    # For now, let's just apply the stage modifier to the current stat value (which is a placeholder).
-    # A better placeholder might be to use base stats from the race.
-    # Let's assume pokemon.base_stats is available (needs to be loaded into Pokemon instance)
-    # effective_stat = int(pokemon.base_stats.get(stat_type, 0) * modifier) # This is still not quite right without IVs/EVs/Nature
-
-    # Let's use the current stat value as a base for now, acknowledging this is a placeholder.
-    effective_stat = int(base_stat * modifier)
-
-    return max(1, effective_stat) # Stat should be at least 1
-
-def check_run_success(player_speed: int, wild_speed: int, run_attempts: int) -> bool:
-    """
-    Checks if running from a wild battle is successful.
-
-    Args:
-        player_speed: The player's active Pokemon's speed stat.
-        wild_speed: The wild Pokemon's speed stat.
-        run_attempts: The number of previous run attempts in this battle.
-
-    Returns:
-        True if running is successful, False otherwise.
-    """
-    # TODO: Implement run success formula (S116 refinement)
-    # Standard formula: Chance = ( (PlayerSpeed * 128 / WildSpeed) + 30 * RunAttempts ) % 256
-    # If Chance > random_byte (0-255), success. If WildSpeed > PlayerSpeed and Chance < 256, always success.
-    # This is a simplified placeholder.
-    if player_speed > wild_speed:
-        return True
-    elif wild_speed > 0:
-        # Simplified chance calculation
-        chance = (player_speed * 128 // wild_speed) + 30 * run_attempts
-        return chance > random.randint(0, 255)
+    # 获取基础能力值
+    base_stats = race_data.get("base_stats", {})
+    base_stat = base_stats.get(stat_type, 50)  # 默认值50
+    
+    # 获取个体值和努力值
+    iv = pokemon.ivs.get(stat_type, 0)
+    ev = pokemon.evs.get(stat_type, 0)
+    
+    # 获取等级和性格
+    level = pokemon.level
+    nature = pokemon.nature
+    
+    # 计算性格修正
+    nature_modifier = 1.0
+    nature_effects = {
+        "勇敢": {"increase": "attack", "decrease": "speed"},
+        "固执": {"increase": "attack", "decrease": "special_attack"},
+        "调皮": {"increase": "attack", "decrease": "defense"},
+        "大胆": {"increase": "attack", "decrease": "special_defense"},
+        
+        "孤独": {"increase": "defense", "decrease": "speed"},
+        "顽皮": {"increase": "defense", "decrease": "attack"},
+        "坦率": {"increase": "defense", "decrease": "special_attack"},
+        "悠闲": {"increase": "defense", "decrease": "special_defense"},
+        
+        "勤奋": {"increase": "special_attack", "decrease": "speed"},
+        "淘气": {"increase": "special_attack", "decrease": "attack"},
+        "爽朗": {"increase": "special_attack", "decrease": "defense"},
+        "内敛": {"increase": "special_attack", "decrease": "special_defense"},
+        
+        "胆小": {"increase": "special_defense", "decrease": "speed"},
+        "马虎": {"increase": "special_defense", "decrease": "attack"},
+        "冷静": {"increase": "special_defense", "decrease": "defense"},
+        "慢吞吞": {"increase": "special_defense", "decrease": "special_attack"},
+        
+        "天真": {"increase": "speed", "decrease": "attack"},
+        "急躁": {"increase": "speed", "decrease": "defense"},
+        "开朗": {"increase": "speed", "decrease": "special_attack"},
+        "害羞": {"increase": "speed", "decrease": "special_defense"},
+        
+        # 中性性格
+        "认真": {},
+        "温和": {},
+        "保守": {},
+        "沉着": {},
+        "稳重": {}
+    }
+    
+    if nature in nature_effects:
+        effect = nature_effects[nature]
+        if "increase" in effect and effect["increase"] == stat_type:
+            nature_modifier = 1.1
+        elif "decrease" in effect and effect["decrease"] == stat_type:
+            nature_modifier = 0.9
+    
+    # 计算基础能力值（不考虑能力等级）
+    if stat_type == "hp":
+        # HP计算公式
+        base_value = math.floor(((2 * base_stat + iv + math.floor(ev/4)) * level) / 100) + level + 10
     else:
-        return True # Cannot fail to run from a Pokemon with 0 speed
+        # 其他能力值计算公式
+        base_value = math.floor((math.floor(((2 * base_stat + iv + math.floor(ev/4)) * level) / 100) + 5) * nature_modifier)
+    
+    # 如果不是HP，则应用能力等级修正
+    if stat_type != "hp":
+        stage = pokemon.stat_stages.get(stat_type, 0)
+        stage_modifier = calculate_stat_stage_modifier(stage)
+        return max(1, int(base_value * stage_modifier))
+    
+    return max(1, base_value)
 
-def calculate_catch_rate_value_A(
+def calculate_catch_rate(
     wild_pokemon: Pokemon,
-    pokeball_catch_rate: int,
-    status_effect: Optional[StatusEffect] # Status effect multiplier
+    ball_modifier: float,
+    status_modifier: float = 1.0
+) -> float:
+    """
+    计算捕获宝可梦的成功率。
+    
+    Args:
+        wild_pokemon: 野生宝可梦。
+        ball_modifier: 精灵球的修正系数。
+        status_modifier: 状态异常的修正系数。
+        
+    Returns:
+        捕获成功率（0.0-1.0）。
+    """
+    # 获取宝可梦的基础捕获率
+    base_catch_rate = wild_pokemon.race.catch_rate
+    
+    # 获取宝可梦的当前HP比例
+    hp_ratio = wild_pokemon.current_hp / wild_pokemon.max_hp
+    
+    # 计算捕获率公式
+    a = (3 * wild_pokemon.max_hp - 2 * wild_pokemon.current_hp) * base_catch_rate * ball_modifier * status_modifier / (3 * wild_pokemon.max_hp)
+    
+    # 限制捕获率
+    a = min(max(a, 0), 255)
+    
+    # 计算捕获概率
+    b = 1048560 / math.sqrt(math.sqrt(16711680 / a))
+    
+    # 抖动检查
+    shake_probability = min(b / 65535, 1.0)
+    
+    # 需要连续4次抖动成功才能捕获
+    catch_probability = shake_probability ** 4
+    
+    return catch_probability
+
+def calculate_exp_gain(
+    defeated_pokemon_base_exp: int,
+    defeated_pokemon_level: int,
+    winner_pokemon_level: int,
+    is_wild: bool = True,
+    exp_share: bool = False,
+    lucky_egg: bool = False,
+    num_participants: int = 1
 ) -> int:
     """
-    Calculates the value 'A' used in the catch rate formula.
-
+    计算击败宝可梦后获得的经验值。
+    
     Args:
-        wild_pokemon: The wild Pokemon instance.
-        pokeball_catch_rate: The catch rate modifier of the used Pokeball.
-        status_effect: The major status effect of the wild Pokemon (if any).
-
+        defeated_pokemon_base_exp: 被击败宝可梦的基础经验值。
+        defeated_pokemon_level: 被击败宝可梦的等级。
+        winner_pokemon_level: 获胜宝可梦的等级。
+        is_wild: 是否是野生宝可梦。
+        exp_share: 是否有经验分享道具。
+        lucky_egg: 是否持有幸运蛋。
+        num_participants: 参与战斗的宝可梦数量。
+        
     Returns:
-        The calculated value 'A'.
+        获得的经验值。
     """
-    # TODO: Implement full catch rate value A calculation including HP, status, pokeball (S117 refinement)
-    # Standard formula: A = ( (WildPokemonMaxHP * 3 - WildPokemonCurrentHP * 2) * WildPokemonCatchRate * PokeballCatchRate ) / (WildPokemonMaxHP * 3)
-    # If status effect (sleep or freeze), A *= 2. If status effect (paralysis, poison, burn), A *= 1.5.
-    # This is a simplified placeholder.
-    if wild_pokemon.max_hp == 0: # Avoid division by zero
-        return 0
+    # 基础公式
+    exp = (defeated_pokemon_base_exp * defeated_pokemon_level) / 5
+    
+    # 对战类型修正
+    if not is_wild:  # 训练师宝可梦提供1.5倍经验
+        exp *= 1.5
+    
+    # 等级差修正
+    level_difference = defeated_pokemon_level - winner_pokemon_level
+    if level_difference > 0:
+        # 击败高等级宝可梦获得额外经验
+        exp *= (1 + 0.05 * level_difference)
+    
+    # 经验分享修正
+    if exp_share:
+        # 如果有经验分享，经验不减少
+        pass
+    else:
+        # 多只宝可梦分享经验
+        exp /= num_participants
+    
+    # 幸运蛋修正（1.5倍经验）
+    if lucky_egg:
+        exp *= 1.5
+    
+    return max(1, int(exp))
 
-    hp_factor = (wild_pokemon.max_hp * 3 - wild_pokemon.current_hp * 2) / (wild_pokemon.max_hp * 3)
-    # Assuming wild_pokemon.race.catch_rate is available
-    # catch_rate_value = int(hp_factor * wild_pokemon.race.catch_rate * pokeball_catch_rate) # Needs race data
-
-    # Placeholder using a fixed base catch rate
-    base_catch_rate = 100 # Example base catch rate
-    catch_rate_value = int(hp_factor * base_catch_rate * pokeball_catch_rate)
-
-    # Apply status effect multiplier
-    if status_effect:
-        if status_effect.logic_key in ['sleep', 'freeze']: # Assuming logic keys for sleep/freeze
-            catch_rate_value = int(catch_rate_value * 2.0)
-        elif status_effect.logic_key in ['paralysis', 'poison', 'burn']: # Assuming logic keys
-            catch_rate_value = int(catch_rate_value * 1.5)
-
-    return max(1, catch_rate_value) # Value A should be at least 1
-
-def perform_catch_shakes(value_A: int) -> int:
+def check_evolution_condition(
+    pokemon: Pokemon,
+    evolution_trigger: str,
+    required_level: Optional[int] = None,
+    required_item_id: Optional[int] = None,
+    required_friendship: Optional[int] = None,
+    required_time: Optional[str] = None,  # "day" 或 "night"
+    required_move_id: Optional[int] = None,  # 需要学会特定技能
+    required_location_id: Optional[int] = None,  # 特定地点进化
+    is_trading: bool = False,
+    is_battle: bool = False,
+    current_time: Optional[str] = None,  # 当前游戏世界时间
+    current_location_id: Optional[int] = None  # 当前位置
+) -> bool:
     """
-    Simulates the shakes of a Pokeball and determines the number of shakes.
-
+    检查宝可梦是否满足进化条件。
+    
     Args:
-        value_A: The calculated value 'A' from the catch rate formula.
-
+        pokemon: 宝可梦。
+        evolution_trigger: 进化触发条件。
+        required_level: 进化所需等级。
+        required_item_id: 进化所需道具ID。
+        required_friendship: 进化所需友好度。
+        required_time: 进化所需时间("day"或"night")。
+        required_move_id: 进化所需已学会的技能ID。
+        required_location_id: 进化所需地点ID。
+        is_trading: 是否正在交换中。
+        is_battle: 是否在战斗中。
+        current_time: 当前游戏世界时间。
+        current_location_id: 当前位置ID。
+        
     Returns:
-        The number of shakes (0 to 4). 4 indicates a successful catch.
+        是否满足进化条件。
     """
-    # TODO: Implement catch shake logic (S117 refinement)
-    # Standard logic: Calculate value B = 65536 * (Value A / 255)^0.1875
-    # Generate 4 random numbers between 0 and 65535. If all 4 are less than B, catch succeeds (4 shakes).
-    # Otherwise, the number of shakes is the count of random numbers less than B.
-    # This is a simplified placeholder.
-    if value_A >= 255:
-        return 4 # Always catch if A is 255 or more
-
-    # Simplified shake simulation
-    shakes = 0
-    # A very basic chance based on A
-    catch_chance_per_shake = value_A / 255.0 # Simplified
-    for _ in range(4):
-        if random.random() < catch_chance_per_shake:
-            shakes += 1
-        else:
-            break # Stop shaking if one fails
-
-    return shakes
-
-def calculate_exp_needed(level: int, growth_rate: str) -> int:
-    """
-    Calculates the total experience needed to reach a given level
-    based on the pokemon's growth rate.
-    This is a placeholder; actual formulas vary by growth rate type.
-    """
-    # Implement actual Pokemon growth rate formulas here based on the growth_rate string.
-    # Growth rates: Fast, Medium Fast, Medium Slow, Slow, Erratic, Fluctuating
-    # Formulas are well-documented online.
-
-    # Example for Medium Fast (n^3):
-    if growth_rate == "medium_fast":
-        return level ** 3
-    # Example for Slow (5*n^4 / 4):
-    elif growth_rate == "slow":
-        return math.floor(5 * (level ** 4) / 4)
-    # Add other growth rates...
-    else:
-        # Default to Medium Fast or raise an error
-        return level ** 3 # Defaulting for MVP
-
-def calculate_exp_gain(defeated_pokemon: Pokemon, player_pokemon_level: int, is_trainer_battle: bool = False) -> int:
-    """
-    Calculates the base experience points gained from defeating a pokemon.
-    Formula: (BaseExpYield * Level / 7) * (1 if trainer battle else 1.5)
-    Simplified formula, actual formula is more complex and includes factors like:
-    - Traded Pokemon bonus (1.5x or 1.7x)
-    - Lucky Egg (1.5x)
-    - Friendship (Gen 8+)
-    - Evolution
-    - Number of participants
-    """
-    race_data = defeated_pokemon.race # Assuming defeated_pokemon has race data
-    if not race_data or race_data.base_exp_yield is None:
-        logger.warning(f"Defeated pokemon instance {defeated_pokemon.instance_id} ({defeated_pokemon.nickname}) missing race data or base_exp_yield. Returning 0 EXP.")
-        return 0
-
-    # Ensure defeated pokemon has a level
-    defeated_level = defeated_pokemon.level if defeated_pokemon.level is not None else 1
-
-    # Base EXP calculation
-    # Formula: (BaseExpYield * Level / 7)
-    base_exp = math.floor((race_data.base_exp_yield * defeated_level) / 7)
-
-    # Trainer battle modifier (wild pokemon give 1x, trainer pokemon give 1.5x in some gens)
-    # Let's use 1x for wild and 1.5x for trainer for now.
-    trainer_modifier = 1.5 if is_trainer_battle else 1.0
-    exp_gain = math.floor(base_exp * trainer_modifier)
-
-    # TODO: Add other EXP modifiers (Lucky Egg, Trade bonus, etc.) (S3 refinement)
-
-    # Ensure minimum EXP gain is 1
-    exp_gain = max(1, exp_gain)
-
-    logger.debug(f"Calculated EXP gain for defeating {defeated_pokemon.nickname} (Level {defeated_level}, Base EXP {race_data.base_exp_yield}): {exp_gain}")
-
-    return exp_gain
-
-def check_item_drop(defeated_pokemon: Pokemon) -> Optional[int]:
-    """
-    Checks if a defeated pokemon drops an item and returns the item ID if it does.
-    Based on the pokemon's race data which includes item_drop_chance and item_drop_id.
-    """
-    race_data = defeated_pokemon.race # Assuming defeated_pokemon has race data
-    if not race_data or race_data.item_drop_chance is None or race_data.item_drop_id is None:
-        logger.debug(f"Defeated pokemon instance {defeated_pokemon.instance_id} ({defeated_pokemon.nickname}) has no item drop configured.")
-        return None
-
-    drop_chance = race_data.item_drop_chance
-    item_id = race_data.item_drop_id
-
-    # Ensure drop chance is between 0 and 1
-    drop_chance = max(0.0, min(1.0, drop_chance))
-
-    # Roll the dice
-    if random.random() < drop_chance:
-        logger.debug(f"Defeated pokemon {defeated_pokemon.nickname} dropped item ID {item_id} (Chance: {drop_chance:.2f})")
-        return item_id
-    else:
-        logger.debug(f"Defeated pokemon {defeated_pokemon.nickname} did not drop an item (Chance: {drop_chance:.2f})")
-        return None
-
-# Constants for stat stage modifiers
-STAT_STAGE_MODIFIERS = {
-    # Attack, Defense, Special Attack, Special Defense, Speed
-    -6: 2/8,
-    -5: 2/7,
-    -4: 2/6,
-    -3: 2/5,
-    -2: 2/4,
-    -1: 2/3,
-    0: 1,
-    1: 3/2,
-    2: 4/2,
-    3: 5/2,
-    4: 6/2,
-    5: 7/2,
-    6: 8/2,
-}
-
-ACCURACY_EVASION_STAGE_MODIFIERS = {
-    # Accuracy, Evasion
-    -6: 3/9,
-    -5: 3/8,
-    -4: 3/7,
-    -3: 3/6,
-    -2: 3/5,
-    -1: 3/4,
-    0: 1,
-    1: 4/3,
-    2: 5/3,
-    3: 6/3,
-    4: 7/3,
-    5: 8/3,
-    6: 9/3,
-}
-
-def calculate_accuracy(attacker: Pokemon, defender: Pokemon, skill: Skill) -> float:
-    """
-    Calculates the effective accuracy of a skill, considering attacker's accuracy stage
-    and defender's evasion stage.
-    Formula: SkillAccuracy * (AttackerAccuracyModifier / DefenderEvasionModifier)
-    Accuracy and Evasion stages range from -6 to +6.
-    """
-    if skill.accuracy is None:
-        logger.debug(f"Skill {skill.name} has no accuracy (status move or always hits). Returning 100%.")
-        return 1.0 # Moves with None accuracy always hit (e.g., status moves)
-
-    # Get accuracy and evasion stage modifiers
-    # Assuming Pokemon model has accuracy_stage and evasion_stage attributes
-    attacker_acc_modifier = ACCURACY_EVASION_STAGE_MODIFIERS.get(attacker.accuracy_stage, 1.0)
-    defender_eva_modifier = ACCURACY_EVASION_STAGE_MODIFIERS.get(defender.evasion_stage, 1.0)
-
-    # Avoid division by zero if evasion modifier is somehow zero (shouldn't happen with defined stages)
-    if defender_eva_modifier <= 0:
-        logger.warning(f"Defender {defender.nickname} has invalid evasion modifier ({defender_eva_modifier}). Using 1.0.")
-        defender_eva_modifier = 1.0
-
-    # Calculate effective accuracy
-    effective_accuracy = skill.accuracy * (attacker_acc_modifier / defender_eva_modifier)
-
-    # Accuracy cannot be less than 0 or greater than 100 (or some game-specific cap)
-    # Let's cap between 0 and 100 for simplicity (represented as 0.0 to 1.0)
-    effective_accuracy = max(0.0, min(1.0, effective_accuracy))
-
-    logger.debug(f"Calculated effective accuracy for {skill.name} ({attacker.nickname} vs {defender.nickname}): {effective_accuracy:.2f}")
-
-    return effective_accuracy
-
-def check_accuracy(attacker: Pokemon, defender: Pokemon, skill: Skill) -> bool:
-    """
-    Checks if a skill hits based on its effective accuracy.
-    Returns True if hit, False otherwise.
-    """
-    if skill.accuracy is None:
-        return True # Moves with None accuracy always hit
-
-    effective_accuracy = calculate_accuracy(attacker, defender, skill)
-
-    # Generate a random number between 0 and 1
-    random_roll = random.random()
-
-    # Hit if random roll is less than effective accuracy
-    if random_roll < effective_accuracy:
-        logger.debug(f"Skill {skill.name} hit ({random_roll:.2f} < {effective_accuracy:.2f}).")
+    # 基本条件检查
+    if evolution_trigger == "level_up":
+        if required_level is None:
+            return False
+        
+        # 等级检查
+        level_ok = pokemon.level >= required_level
+        if not level_ok:
+            return False
+            
+        # 附加条件检查（如果有）
+        
+        # 时间条件
+        if required_time and current_time:
+            if required_time != current_time:
+                return False
+                
+        # 技能条件
+        if required_move_id:
+            move_learned = any(skill.skill_id == required_move_id for skill in pokemon.skills)
+            if not move_learned:
+                return False
+                
+        # 地点条件
+        if required_location_id and current_location_id:
+            if required_location_id != current_location_id:
+                return False
+                
+        # 友好度条件
+        if required_friendship:
+            if pokemon.happiness < required_friendship:
+                return False
+                
+        # 通过所有检查
         return True
-    else:
-        logger.debug(f"Skill {skill.name} missed ({random_roll:.2f} >= {effective_accuracy:.2f}).")
-        return False
-
-def calculate_critical_hit_chance(attacker: Pokemon, skill: Skill) -> float:
-    """
-    Calculates the chance of a critical hit.
-    Simplified formula: Base chance (e.g., 1/16 or 6.25%) + modifiers from skill/ability/item.
-    For MVP, let's use a base chance and potentially a skill modifier.
-    """
-    # Base critical hit chance (e.g., 1/16 = 0.0625)
-    base_chance = 0.0625
-
-    # Skill-specific critical hit ratio (e.g., some skills have higher crit chance)
-    # Assuming Skill model has a critical_hit_ratio attribute (e.g., 1 for normal, 2 for high crit)
-    skill_crit_modifier = skill.critical_hit_ratio if hasattr(skill, 'critical_hit_ratio') and skill.critical_hit_ratio is not None else 1
-
-    # Apply skill modifier (simplified: ratio * base chance)
-    # Actual formula is more complex, often affecting the 'stage' of crit chance.
-    # For MVP, let's just multiply for simplicity.
-    critical_hit_chance = base_chance * skill_crit_modifier
-
-    # Cap the chance (e.g., max 50% or 100% depending on generation/modifiers)
-    # Let's cap at 1.0 (100%) for simplicity.
-    critical_hit_chance = min(1.0, critical_hit_chance)
-
-    logger.debug(f"Calculated critical hit chance for {skill.name} ({attacker.nickname}): {critical_hit_chance:.2f}")
-
-    return critical_hit_chance
-
-def check_critical_hit(attacker: Pokemon, skill: Skill) -> bool:
-    """
-    Checks if an attack is a critical hit.
-    Returns True if critical hit, False otherwise.
-    """
-    critical_hit_chance = calculate_critical_hit_chance(attacker, skill)
-
-    # Generate a random number between 0 and 1
-    random_roll = random.random()
-
-    # Critical hit if random roll is less than critical hit chance
-    if random_roll < critical_hit_chance:
-        logger.debug(f"Skill {skill.name} is a critical hit ({random_roll:.2f} < {critical_hit_chance:.2f}).")
+    
+    # 道具进化
+    elif evolution_trigger == "item":
+        return required_item_id is not None
+    
+    # 交换进化
+    elif evolution_trigger == "trade":
+        # 有些宝可梦需要在交换时持有特定道具
+        if required_item_id:
+            return is_trading and pokemon.held_item_id == required_item_id
+        return is_trading
+    
+    # 友好度进化
+    elif evolution_trigger == "friendship":
+        if required_friendship is None:
+            return False
+            
+        friendship_ok = pokemon.happiness >= required_friendship
+        
+        # 可能有额外条件，如时间
+        if required_time and current_time:
+            return friendship_ok and required_time == current_time
+            
+        return friendship_ok
+    
+    # 战斗进化
+    elif evolution_trigger == "battle":
+        if not is_battle:
+            return False
+            
+        # 有些宝可梦需要在战斗中升级到特定等级
+        if required_level:
+            return pokemon.level >= required_level
+            
         return True
-    else:
-        logger.debug(f"Skill {skill.name} is not a critical hit ({random_roll:.2f} >= {critical_hit_chance:.2f}).")
+        
+    # 特殊形式进化，如性别特定进化、特定天气等
+    elif evolution_trigger == "special":
+        # 这里需要根据具体宝可梦设计更多特殊条件
+        # 例如伊布的各种进化形式
         return False
-
-def calculate_stat_stage_modifier(stage: int, is_accuracy_evasion: bool = False) -> float:
-    """
-    Calculates the modifier for a stat based on its stage.
-    Stages range from -6 to +6.
-    Accuracy and Evasion use a different set of modifiers.
-    """
-    if is_accuracy_evasion:
-        return ACCURACY_EVASION_STAGE_MODIFIERS.get(stage, 1.0)
-    else:
-        return STAT_STAGE_MODIFIERS.get(stage, 1.0)
+    
+    return False
 
 # Terrain damage modifiers (example, based on field_effects.csv)
 # Structure: {terrain_logic_key: {skill_type_id: multiplier}}
@@ -586,10 +674,6 @@ TERRAIN_DAMAGE_MODIFIERS: Dict[str, Dict[int, float]] = {
     "misty_terrain_effect": {16: 0.5}, # Misty Terrain weakens Dragon (type 16) moves by 0.5x
     # Add other terrain effects as needed
 }
-
-# Need a way to get type ID from type name or load a full type chart
-# For now, using placeholder type IDs based on common practice (e.g., 13 for Electric)
-# TODO: Load actual type IDs and effectiveness from metadata (S31 refinement)
 
 async def calculate_damage(attacker: Pokemon, defender: Pokemon, skill: Skill, battle: Battle, metadata_repo: MetadataRepository) -> int:
     """
@@ -606,7 +690,7 @@ async def calculate_damage(attacker: Pokemon, defender: Pokemon, skill: Skill, b
     - Weather: 1.5x or 0.5x for certain types/moves
     - Terrain: 1.5x or 0.5x for certain types/moves
     - Burn: 0.5x physical damage if attacker is burned
-    - Other modifiers (Items, Abilities, etc.) - TODO
+    - Other modifiers (Items, Abilities, etc.)
 
     Args:
         attacker: The attacking Pokemon.
@@ -635,11 +719,6 @@ async def calculate_damage(attacker: Pokemon, defender: Pokemon, skill: Skill, b
     else:
         # Status moves or other categories don't deal direct damage
         return 0
-
-    # Apply stat stage modifiers
-    # TODO: Need to track stat stages in Pokemon model (S32 refinement)
-    # attack_stat *= calculate_stat_stage_modifier(attacker.attack_stage)
-    # defense_stat *= calculate_stat_stage_modifier(defender.defense_stage)
 
     # Basic Damage Calculation
     # Ensure no division by zero if defense_stat is 0 (shouldn't happen with base stats > 0, but good practice)
@@ -670,7 +749,7 @@ async def calculate_damage(attacker: Pokemon, defender: Pokemon, skill: Skill, b
     logger.debug(f"Type Effectiveness applied ({type_effectiveness_multiplier}x)")
 
     # 3. Critical Hit
-    if check_critical_hit(attacker, skill):
+    if check_critical_hit(attacker, skill.critical_hit_ratio):
         modifier *= 1.5 # Critical hit multiplier (Gen 6+)
         logger.debug(f"Critical hit modifier applied (1.5x)")
 
@@ -679,20 +758,38 @@ async def calculate_damage(attacker: Pokemon, defender: Pokemon, skill: Skill, b
     modifier *= random_factor
     logger.debug(f"Random Factor applied ({random_factor}x)")
 
-    # 5. Weather (TODO: Implement weather effects) (S36 refinement)
-    # if battle.weather:
-    #     weather_modifier = 1.0
-    #     # Example: Sunny weather boosts Fire moves (type 10), weakens Water moves (type 11)
-    #     if battle.weather == 'sunny_effect':
-    #         if skill.skill_type == 10: weather_modifier = 1.5
-    #         elif skill.skill_type == 11: weather_modifier = 0.5
-    #     # Example: Rainy weather boosts Water moves (type 11), weakens Fire moves (type 10)
-    #     elif battle.weather == 'rainy_effect':
-    #         if skill.skill_type == 11: weather_modifier = 1.5
-    #         elif skill.skill_type == 10: weather_modifier = 0.5
-    #     # Add other weather effects...
-    #     modifier *= weather_modifier
-    #     logger.debug(f"Weather ({battle.weather}) modifier applied ({weather_modifier}x)")
+    # 5. Weather effects
+    if battle.weather:
+        weather_modifier = 1.0
+        # 天气效果实现
+        if battle.weather == 'sunny':
+            # 晴天增强火系技能，削弱水系技能
+            if skill.skill_type == 10:  # 假设10是火系ID
+                weather_modifier = 1.5
+                logger.debug(f"Sunny weather boosts Fire-type move (1.5x)")
+            elif skill.skill_type == 11:  # 假设11是水系ID
+                weather_modifier = 0.5
+                logger.debug(f"Sunny weather weakens Water-type move (0.5x)")
+        elif battle.weather == 'rainy':
+            # 雨天增强水系技能，削弱火系技能
+            if skill.skill_type == 11:  # 水系
+                weather_modifier = 1.5
+                logger.debug(f"Rainy weather boosts Water-type move (1.5x)")
+            elif skill.skill_type == 10:  # 火系
+                weather_modifier = 0.5
+                logger.debug(f"Rainy weather weakens Fire-type move (0.5x)")
+        elif battle.weather == 'sandstorm':
+            # 沙暴增加岩石系宝可梦的特防
+            if 13 in defender_type_ids:  # 假设13是岩石系ID
+                if skill.damage_type == "special":
+                    defense_stat *= 1.5
+                    logger.debug(f"Sandstorm boosts Rock-type Pokémon's Special Defense (1.5x)")
+        elif battle.weather == 'hail':
+            # 冰雹对非冰系宝可梦造成伤害（在battle_logic中处理）
+            pass
+            
+        modifier *= weather_modifier
+        logger.debug(f"Weather ({battle.weather}) modifier applied ({weather_modifier}x)")
 
     # 6. Terrain (Implement terrain effects based on loaded data)
     if battle.terrain:
@@ -710,12 +807,52 @@ async def calculate_damage(attacker: Pokemon, defender: Pokemon, skill: Skill, b
             # TODO: Add logic for terrain effects that are not simple damage multipliers (e.g., Grassy Terrain healing) (S37 refinement)
             # These effects might be handled elsewhere in battle_logic.py
 
-    # 7. Burn (TODO: Implement burn effect) (S38 refinement)
-    # if attacker.has_status('burn') and skill.category == 'physical':
-    #     modifier *= 0.5
-    #     logger.debug("Burn modifier applied (0.5x)")
+    # 7. Burn effect
+    if any(status.status_type == 'burn' for status in attacker.status_effects) and skill.damage_type == 'physical':
+        burn_modifier = 0.5
+        modifier *= burn_modifier
+        logger.debug(f"Burn modifier applied ({burn_modifier}x)")
 
-    # 8. Other modifiers (Items, Abilities, etc.) (TODO: Implement) (S39 refinement)
+    # 8. Other modifiers (Items, Abilities, etc.)
+    # 道具效果
+    if attacker.held_item:
+        item_modifier = 1.0
+        
+        # 各种属性增强道具
+        type_boosting_items = {
+            "火焰宝珠": {"type": 10, "boost": 1.2},  # 火系
+            "神秘水滴": {"type": 11, "boost": 1.2},  # 水系
+            "奇迹种子": {"type": 12, "boost": 1.2},  # 草系
+            # 可以添加更多类型增强道具
+        }
+        
+        # 检查是否有属性增强道具
+        if attacker.held_item.name in type_boosting_items:
+            item_data = type_boosting_items[attacker.held_item.name]
+            if skill.skill_type == item_data["type"]:
+                item_modifier = item_data["boost"]
+                logger.debug(f"Item {attacker.held_item.name} boosts {skill.skill_type}-type moves ({item_modifier}x)")
+        
+        # 攻击提升道具
+        if attacker.held_item.name == "力量护腕" and skill.damage_type == "physical":
+            item_modifier = 1.1
+            logger.debug(f"Muscle Band boosts physical moves (1.1x)")
+        elif attacker.held_item.name == "智力眼镜" and skill.damage_type == "special":
+            item_modifier = 1.1
+            logger.debug(f"Wise Glasses boosts special moves (1.1x)")
+            
+        modifier *= item_modifier
+
+    # 检查特殊场地效果（在伤害计算以外的效果）
+    if battle.terrain == "grassy_terrain":
+        # 每回合结束时回复HP的逻辑将在battle_logic.py中实现
+        pass
+    elif battle.terrain == "psychic_terrain":
+        # 优先级技能失效的逻辑将在battle_logic.py中实现
+        pass
+    elif battle.terrain == "misty_terrain":
+        # 状态异常防护的逻辑将在battle_logic.py中实现
+        pass
 
     # Final Damage Calculation
     final_damage = math.floor(damage * modifier)
@@ -730,13 +867,94 @@ async def calculate_damage(attacker: Pokemon, defender: Pokemon, skill: Skill, b
 
 def calculate_exp_needed(level: int, growth_rate: str) -> int:
     """
-    Calculates the total experience needed to reach the given level for a specific growth rate.
-    This is a placeholder and needs to be implemented based on actual growth rate formulas.
+    计算达到指定等级所需的总经验值。
+    
+    Args:
+        level: 目标等级。
+        growth_rate: 成长速率。
+        
+    Returns:
+        所需的总经验值。
     """
-    # Placeholder implementation - needs actual formulas for different growth rates
-    # Example: Medium Fast growth rate (simplification)
-    if growth_rate == "medium_fast":
+    if level <= 1:
+        return 0
+        
+    # 不同成长速率的经验值计算
+    if growth_rate == "fast":
+        return int(0.8 * (level ** 3))
+    elif growth_rate == "medium_fast":
         return level ** 3
-    # Add other growth rates...
-    logger.warning(f"Experience needed calculation for growth rate '{growth_rate}' is a placeholder.")
-    return level * 100 # Default placeholder
+    elif growth_rate == "medium_slow":
+        return int(1.2 * (level ** 3) - 15 * (level ** 2) + 100 * level - 140)
+    elif growth_rate == "slow":
+        return int(1.25 * (level ** 3))
+    elif growth_rate == "fluctuating":
+        if level <= 15:
+            return int((level ** 3) * (((level + 1) / 3) + 24) / 50)
+        elif level <= 36:
+            return int((level ** 3) * (level + 14) / 50)
+        else:
+            return int((level ** 3) * ((level / 2) + 32) / 50)
+    elif growth_rate == "erratic":
+        if level <= 50:
+            return int((level ** 3) * (100 - level) / 50)
+        elif level <= 68:
+            return int((level ** 3) * (150 - level) / 100)
+        elif level <= 98:
+            return int((level ** 3) * ((1911 - 10 * level) / 3) / 500)
+        else:
+            return int((level ** 3) * (160 - level) / 100)
+    
+    # 默认使用medium_fast
+    return level ** 3
+
+def calculate_exp_to_next_level(current_exp: int, current_level: int, growth_rate: str) -> int:
+    """
+    计算升级到下一级所需的经验值。
+    
+    Args:
+        current_exp: 当前经验值。
+        current_level: 当前等级。
+        growth_rate: 成长速率。
+        
+    Returns:
+        升级所需的经验值。
+    """
+    next_level = current_level + 1
+    exp_needed_for_next = calculate_exp_needed(next_level, growth_rate)
+    exp_needed_for_current = calculate_exp_needed(current_level, growth_rate)
+    
+    # 计算还需要多少经验值
+    exp_needed = exp_needed_for_next - current_exp
+    
+    return max(0, exp_needed)
+
+def calculate_escape_chance(
+    player_pokemon_speed: int,
+    wild_pokemon_speed: int,
+    escape_attempt_count: int = 0
+) -> float:
+    """
+    计算从野生宝可梦战斗中逃跑的成功率。
+    
+    Args:
+        player_pokemon_speed: 玩家宝可梦的速度。
+        wild_pokemon_speed: 野生宝可梦的速度。
+        escape_attempt_count: 已尝试逃跑的次数。
+        
+    Returns:
+        逃跑成功的概率（0.0-1.0）。
+    """
+    # 基本公式：逃跑指数 = ((玩家速度 * 128) / 野生速度) + 30 * 逃跑尝试次数
+    if wild_pokemon_speed <= 0:
+        return 1.0  # 防止除以零，100%成功
+        
+    escape_index = ((player_pokemon_speed * 128) / wild_pokemon_speed) + 30 * escape_attempt_count
+    
+    # 限制在合理范围内
+    escape_index = min(255, escape_index)
+    
+    # 转换为概率（0-255范围映射到0.0-1.0）
+    escape_probability = escape_index / 255.0
+    
+    return escape_probability

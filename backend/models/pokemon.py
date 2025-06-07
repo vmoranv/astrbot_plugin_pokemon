@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, TYPE_CHECKING, Union, Tuple
 # Assuming Skill, StatusEffect, Race models will be defined
 # from .skill import Skill
 # from .status_effect import StatusEffect
@@ -10,6 +10,7 @@ import uuid # Using uuid for unique instance IDs
 import random
 import math
 import json # Import json for handling JSON strings
+import asyncio
 
 # Assuming Race and Skill models are defined
 from .race import Race # Import Race model
@@ -21,6 +22,25 @@ from backend.core.battle.formulas import calculate_exp_needed, calculate_stats, 
 # Import BattleEvent and StatStageChangeEvent
 from backend.core.battle.events import BattleEvent, StatStageChangeEvent
 from backend.utils.logger import get_logger
+
+# Forward declaration for type hinting if Pokemon, Skill, StatusEffect, Item are in this file or imported later
+# For now, assuming they will be imported.
+# If they are in different files, proper imports are needed:
+# from backend.models.pokemon import Pokemon # 假设 Pokemon 模型定义在 backend.models.pokemon
+from backend.models.skill import Skill # 假设 Skill 模型定义在 backend.models.skill
+from backend.models.status_effect import StatusEffect # 假设 StatusEffect 模型定义在 backend.models.status_effect
+from backend.models.item import Item # 假设 Item 模型定义在 backend.models.item
+# 导入事件模型
+from backend.models.event import (
+    Event,
+    PokemonLeveledUpEvent,
+    PokemonLearnedSkillEvent,
+    SkillReplacementRequiredEvent # 新增导入
+)
+
+if TYPE_CHECKING:
+    from backend.data_access.repositories.metadata_repository import MetadataRepository
+    from backend.models.race import Race # 假设 Race 模型定义在 backend.models.race
 
 logger = get_logger(__name__)
 
@@ -201,31 +221,96 @@ class Pokemon:
         return damage_taken
 
     def apply_status_effect(self, status_effect: StatusEffect) -> List[str]:
-        """Applies a status effect to the pokemon."""
+        """
+        应用状态效果到宝可梦身上，根据状态类型处理互斥规则。
+        
+        状态效果规则：
+        - 主要状态（睡眠、中毒、麻痹、烧伤、冰冻等）一次只能有一个
+        - 次要状态（混乱、着迷等）可以与主要状态共存
+        - 某些特定状态效果可能有特殊互斥规则
+        
+        Args:
+            status_effect: 要应用的状态效果
+            
+        Returns:
+            包含操作结果消息的列表
+        """
         messages: List[str] = []
-        # Check if pokemon is already affected by this status or an incompatible one
-        # TODO: Implement proper status effect application logic (S2 refinement)
-        # For now, a simple check if status type is already present
-        if any(se.status_id == status_effect.status_id for se in self.status_effects):
-             messages.append(f"{self.nickname} 已经处于 {status_effect.name} 状态。")
-             logger.debug(f"{self.nickname} already has status effect {status_effect.name}.")
+        
+        # 检查状态效果类型
+        if status_effect.effect_type == "primary":
+            # 主要状态效果：移除所有现有的主要状态
+            removed_effects = []
+            for se in self.status_effects[:]:
+                if se.effect_type == "primary":
+                    removed_effects.append(se.name)
+                    self.status_effects.remove(se)
+            
+            if removed_effects:
+                effect_names = "、".join(removed_effects)
+                messages.append(f"{self.nickname} 的 {effect_names} 状态解除了。")
+            
+            # 添加新的主要状态
+            self.status_effects.append(status_effect)
+            messages.append(f"{self.nickname} 进入了 {status_effect.name} 状态！")
+            logger.debug(f"Applied primary status effect {status_effect.name} to {self.nickname}.")
+        
+        elif status_effect.effect_type == "secondary":
+            # 次要状态效果：检查是否已有相同的状态效果
+            if any(se.status_id == status_effect.status_id for se in self.status_effects):
+                messages.append(f"{self.nickname} 已经处于 {status_effect.name} 状态。")
+                logger.debug(f"{self.nickname} already has secondary status effect {status_effect.name}.")
+            else:
+                # 检查互斥的次要状态
+                incompatible_statuses = status_effect.incompatible_with if hasattr(status_effect, 'incompatible_with') else []
+                for se in self.status_effects[:]:
+                    if se.status_id in incompatible_statuses:
+                        messages.append(f"{self.nickname} 的 {se.name} 状态被解除了。")
+                        self.status_effects.remove(se)
+                
+                # 添加新的次要状态
+                self.status_effects.append(status_effect)
+                messages.append(f"{self.nickname} 进入了 {status_effect.name} 状态！")
+                logger.debug(f"Applied secondary status effect {status_effect.name} to {self.nickname}.")
+        
         else:
-             self.status_effects.append(status_effect)
-             messages.append(f"{self.nickname} 进入了 {status_effect.name} 状态！")
-             logger.debug(f"Applied status effect {status_effect.name} to {self.nickname}.")
+            # 其他类型状态效果（如场地效果、天气效果等）
+            if any(se.status_id == status_effect.status_id for se in self.status_effects):
+                messages.append(f"{self.nickname} 已经处于 {status_effect.name} 状态。")
+                logger.debug(f"{self.nickname} already has status effect {status_effect.name}.")
+            else:
+                self.status_effects.append(status_effect)
+                messages.append(f"{self.nickname} 获得了 {status_effect.name} 效果！")
+                logger.debug(f"Applied status effect {status_effect.name} to {self.nickname}.")
+        
         return messages
 
     def remove_status_effect(self, status_id: int) -> List[str]:
-        """Removes a status effect by its ID."""
+        """
+        移除特定ID的状态效果。
+        
+        Args:
+            status_id: 要移除的状态效果ID
+            
+        Returns:
+            包含操作结果消息的列表
+        """
         messages: List[str] = []
-        original_count = len(self.status_effects)
-        self.status_effects = [se for se in self.status_effects if se.status_id != status_id]
-        if len(self.status_effects) < original_count:
-             # Need metadata to get status name
-             # Assuming status effect metadata is available or can be fetched
-             # For now, just use ID
-             messages.append(f"{self.nickname} 的状态 {status_id} 解除了。")
-             logger.debug(f"Removed status effect with ID {status_id} from {self.nickname}.")
+        removed_effect = None
+        
+        # 寻找并移除状态效果
+        for se in self.status_effects[:]:
+            if se.status_id == status_id:
+                removed_effect = se
+                self.status_effects.remove(se)
+                break
+                
+        if removed_effect:
+            messages.append(f"{self.nickname} 的 {removed_effect.name} 状态解除了。")
+            logger.debug(f"Removed status effect {removed_effect.name} from {self.nickname}.")
+        else:
+            logger.debug(f"Attempted to remove status effect with ID {status_id} from {self.nickname}, but it was not found.")
+        
         return messages
 
     def apply_stat_stage_change(self, stat_type: str, stages: int, event_publisher: Callable[[BattleEvent], None]):
@@ -299,61 +384,101 @@ class Pokemon:
         # Return the base stat for these, or handle them in the hit calculation logic
         return base_stat # Or raise an error/return None if this method shouldn't be called for accuracy/evasion
 
-    def add_exp(self, exp_gained: int, metadata_repo) -> List[str]:
-        """Adds experience points and handles level ups."""
+    async def add_exp(self, amount: int, metadata_repo: 'MetadataRepository') -> Tuple[List[str], List[Union[PokemonLeveledUpEvent, PokemonLearnedSkillEvent, SkillReplacementRequiredEvent]]]:
+        """
+        为宝可梦添加经验值，处理升级和学习技能。
+        
+        Args:
+            amount (int): 要添加的经验值
+            metadata_repo (MetadataRepository): 元数据仓库，用于获取宝可梦种族数据和技能数据
+            
+        Returns:
+            Tuple[List[str], List[Union[PokemonLeveledUpEvent, PokemonLearnedSkillEvent, SkillReplacementRequiredEvent]]]:
+                一个元组，包含消息列表和事件列表
+        """
         messages: List[str] = []
-        if self.race is None:
-             logger.warning(f"Cannot add EXP to {self.nickname}: Race data missing.")
-             return messages
+        events: List[Union[PokemonLeveledUpEvent, PokemonLearnedSkillEvent, SkillReplacementRequiredEvent]] = []
 
-        self.experience += exp_gained
-        messages.append(f"{self.nickname} 获得了 {exp_gained} 点经验值！")
+        # 确保 race_data 已加载
+        if not self.race:
+             # 尝试从 metadata_repo 加载 race_data
+             if metadata_repo:
+                 self.race = await metadata_repo.get_race_by_id(self.race_id)
+                 if not self.race:
+                     logger.error(f"Race data not found for Pokemon instance {self.instance_id} with race_id {self.race_id}")
+                     return messages, events # 无法处理，返回空列表
+             else:
+                 logger.error(f"MetadataRepository not provided to add_exp for Pokemon instance {self.instance_id}")
+                 return messages, events # 无法处理，返回空列表
 
-        # Check for level up
-        while True:
-            exp_needed_for_next_level = calculate_exp_needed(self.level + 1, self.race.growth_rate)
-            if self.experience >= exp_needed_for_next_level:
-                self.level += 1
-                messages.append(f"{self.nickname} 升级了！现在是 {self.level} 级！")
+        # 1. Add experience
+        self.experience += amount
+        logger.debug(f"{self.nickname} gained {amount} EXP. Total EXP: {self.experience}")
+        messages.append(f"{self.nickname} 获得了 {amount} 点经验值。")
 
-                # Recalculate stats on level up
-                calculate_stats(self, self.race, metadata_repo) # Pass metadata_repo for nature/attribute data
-                messages.append(f"{self.nickname} 的能力值提高了！")
+        # 2. Check for level up
+        leveled_up = False
+        while self.level < 100 and self.experience >= calculate_exp_needed(self.level + 1, self.race.growth_rate):
+            self.experience -= calculate_exp_needed(self.level + 1, self.race.growth_rate) # Deduct EXP for the current level
+            self.level += 1
+            leveled_up = True
+            messages.append(f"{self.nickname} 升到了等级 {self.level}！")
+            logger.info(f"{self.nickname} (Instance ID: {self.instance_id}) leveled up to {self.level}.")
+            events.append(PokemonLeveledUpEvent(
+                pokemon_instance_id=self.instance_id,
+                pokemon_name=self.nickname or self.race.name,
+                new_level=self.level,
+                message=f"{self.nickname} 升到了等级 {self.level}！"
+            ))
 
-                # Check for new skills learned by level up
-                if self.race and self.race.learnable_skills:
-                    newly_learned_skills = [
-                        ls for ls in self.race.learnable_skills
-                        if ls.level == self.level
-                    ]
-                    for learnable_skill in newly_learned_skills:
-                        skill_id = learnable_skill.skill_id
-                        # Check if the pokemon already knows this skill
-                        if not any(ps.skill_id == skill_id for ps in self.skills): # Check against PokemonSkill list
-                            if len(self.skills) < 4:
-                                # Learn the new skill
-                                skill_data = metadata_repo.get_skill_by_id(skill_id)
-                                if skill_data:
-                                     # Add the new skill with its max PP
-                                     self.skills.append(PokemonSkill(skill_id=skill_id, current_pp=skill_data.pp)) # Add as PokemonSkill
-                                     messages.append(f"{self.nickname} 学会了 {skill_data.name}！")
-                                else:
-                                     messages.warning(f"Skill data not found for ID {skill_id} when {self.nickname} leveled up.")
-                            else:
-                                # TODO: Implement skill replacement logic (S3 refinement)
-                                # For now, just inform the player they couldn't learn it
-                                skill_data = metadata_repo.get_skill_by_id(skill_id)
-                                if skill_data:
-                                     messages.append(f"{self.nickname} 想学习 {skill_data.name}，但是已经学会了4个技能。")
-                                else:
-                                     messages.append(f"{self.nickname} 想学习新技能 (ID: {skill_id})，但是已经学会了4个技能。")
-                                logger.warning(f"{self.nickname} tried to learn skill {skill_id} but already knows 4 skills. Skill replacement not implemented.")
+            # 3. Check for learnable skills at the new level
+            # Use race_data to find skills learned at this level
+            learnable_skills_at_level = self.race.get_learnable_skills_at_level(self.level) # 假设 Race 模型有这个方法
+
+            current_skill_ids = {skill.skill_id for skill in self.skills}
+
+            for skill_id in learnable_skills_at_level:
+                if skill_id not in current_skill_ids:
+                    # Try to learn the skill
+                    skill_to_learn_obj = await metadata_repo.get_skill_by_id(skill_id)
+                    if skill_to_learn_obj:
+                        if len(self.skills) < 4: # 假设最多4个技能
+                            self.skills.append(skill_to_learn_obj)
+                            message = f"{self.nickname} 学会了 {skill_to_learn_obj.name}！"
+                            messages.append(message)
+                            logger.info(message)
+                            events.append(PokemonLearnedSkillEvent(
+                                pokemon_instance_id=self.instance_id,
+                                skill_id=skill_to_learn_obj.skill_id,
+                                skill_name=skill_to_learn_obj.name,
+                                message=message
+                            ))
+                        else:
+                            # 当技能已满时的处理
+                            message = f"{self.nickname} 想学习 {skill_to_learn_obj.name}，但是已经学会了4个技能。需要替换一个技能吗？"
+                            messages.append(message)
+                            logger.warning(f"{self.nickname} tried to learn skill {skill_id} but already knows 4 skills. Triggering replacement event.")
+                            events.append(SkillReplacementRequiredEvent(
+                                pokemon_instance_id=self.instance_id,
+                                pokemon_name=self.nickname or self.race.name,
+                                new_skill_id=skill_id,
+                                new_skill_name=skill_to_learn_obj.name,
+                                current_skills=[s.to_dict() for s in self.skills],  # 提供当前技能信息以供选择
+                                message=message
+                            ))
+                            # 触发替换事件后，宝可梦模型不应该自己替换技能，而是等待服务层或命令层的用户输入。
+                            # 所以这里不修改 self.skills
 
             else:
                 # Not enough EXP for the next level yet
                 break # Exit the while loop
 
-        return messages
+        # 如果没有升级，但仍未满级，记录还需要多少经验
+        if not leveled_up and self.level < 100:
+             logger.debug(f"{self.nickname} 还需要 {calculate_exp_needed(self.level + 1, self.race.growth_rate) - self.experience} 点经验升级。")
+
+        # 返回消息和事件列表
+        return messages, events
 
     def use_skill_pp(self, skill_id: int, amount: int = 1) -> bool:
         """Decreases the PP of a specific skill."""
@@ -501,29 +626,80 @@ class Pokemon:
 
     def get_stat(self, stat_name: str) -> int:
         """
-        Returns the current value of a specific stat.
+        获取宝可梦的特定属性值，考虑战斗中的等级修正。
         
         Args:
-            stat_name: The name of the stat to retrieve.
+            stat_name: 属性名称 ('hp', 'attack', 'defense', 'special_attack', 'special_defense', 'speed', 'accuracy', 'evasion')
             
         Returns:
-            The current value of the specified stat.
+            计算后的属性值
         """
-        if stat_name in self.battle_stat_stages:
-            return self.battle_stat_stages[stat_name]
-        else:
-            logger.warning(f"Unknown stat: {stat_name}")
+        if stat_name == 'hp':
+            return self.max_hp
+        
+        # 检查属性是否存在
+        if not hasattr(self, stat_name):
+            logger.warning(f"Attempted to get unknown stat '{stat_name}' for {self.nickname}")
             return 0
+        
+        # 获取基础属性值
+        base_value = getattr(self, stat_name)
+        
+        # 如果不在战斗中，返回基础值
+        if not self.in_battle:
+            return base_value
+        
+        # 在战斗中考虑能力等级修正
+        if stat_name in self.battle_stat_stages:
+            stage = self.battle_stat_stages[stat_name]
+            multiplier = 1.0
+            
+            # 根据能力等级计算修正系数
+            if stage > 0:
+                multiplier = (2 + stage) / 2
+            elif stage < 0:
+                multiplier = 2 / (2 - stage)
+            
+            return int(base_value * multiplier)
+        else:
+            return base_value
 
-    def recalculate_stats(self):
+    def recalculate_stats(self) -> None:
         """
-        Recalculates the stats of the Pokemon based on its current level, race, and IVs/EVs.
+        重新计算宝可梦的所有属性值，基于当前等级、种族值、个体值和努力值。
+        在进化或等级提升时需要调用此方法。
         """
-        if self.race is None:
-            logger.warning(f"Cannot recalculate stats for {self.nickname}: Race data missing.")
+        if not self.race:
+            logger.warning(f"Cannot recalculate stats for {self.nickname}: race data not available")
             return
-
-        calculate_stats(self, self.race, None) # Pass None for metadata_repo
+        
+        # 计算HP
+        if hasattr(self.race, 'base_hp'):
+            base_hp = self.race.base_hp
+            self.max_hp = math.floor(((2 * base_hp + self.iv_hp + (self.ev_hp // 4)) * self.level) // 100 + self.level + 10)
+            # 确保当前HP不超过最大HP
+            if self.current_hp > self.max_hp:
+                self.current_hp = self.max_hp
+            
+        # 计算其他属性
+        for stat in ['attack', 'defense', 'special_attack', 'special_defense', 'speed']:
+            base_value = getattr(self.race, f'base_{stat}', 0)
+            iv_value = getattr(self, f'iv_{stat}', 0)
+            ev_value = getattr(self, f'ev_{stat}', 0)
+            
+            # 获取属性修正系数（根据性格）
+            nature_modifier = 1.0
+            if hasattr(self, 'nature') and self.nature:
+                if stat == self.nature.increased_stat:
+                    nature_modifier = 1.1
+                elif stat == self.nature.decreased_stat:
+                    nature_modifier = 0.9
+                
+            # 计算属性值
+            value = math.floor((((2 * base_value + iv_value + (ev_value // 4)) * self.level) // 100 + 5) * nature_modifier)
+            setattr(self, stat, value)
+            
+        logger.debug(f"Recalculated stats for {self.nickname} at level {self.level}")
 
     def reset_battle_stats(self):
         """重置战斗相关的临时状态，例如能力等级。"""
@@ -538,6 +714,125 @@ class Pokemon:
     def has_status_effect(self, status_id: int) -> bool:
         """Checks if the pokemon has a specific status effect."""
         return any(se.status_id == status_id for se in self.status_effects)
+
+    async def replace_skill(self, old_skill_id: int, new_skill_id: int, metadata_repo: 'MetadataRepository') -> Tuple[bool, str]:
+        """
+        替换宝可梦的一个技能。
+        
+        Args:
+            old_skill_id (int): 要替换的旧技能ID
+            new_skill_id (int): 要学习的新技能ID
+            metadata_repo (MetadataRepository): 元数据仓库，用于获取新技能的详细信息
+            
+        Returns:
+            Tuple[bool, str]: 一个元组，包含操作是否成功的布尔值和描述结果的消息
+        """
+        # 验证旧技能是否存在于宝可梦的技能列表中
+        old_skill_index = None
+        old_skill = None
+        for i, skill in enumerate(self.skills):
+            if skill.skill_id == old_skill_id:
+                old_skill_index = i
+                old_skill = skill
+                break
+                
+        if old_skill_index is None:
+            return False, f"{self.nickname or self.race.name} 没有ID为 {old_skill_id} 的技能，无法替换。"
+            
+        # 从元数据仓库获取新技能信息
+        new_skill_data = await metadata_repo.get_skill_by_id(new_skill_id)
+        if not new_skill_data:
+            return False, f"无法找到ID为 {new_skill_id} 的技能数据，替换失败。"
+            
+        # 执行技能替换
+        old_skill_name = old_skill.name
+        self.skills[old_skill_index] = new_skill_data
+        
+        logger.info(f"{self.nickname or self.race.name} 忘记了 {old_skill_name}，学会了 {new_skill_data.name}！")
+        return True, f"{self.nickname or self.race.name} 忘记了 {old_skill_name}，学会了 {new_skill_data.name}！"
+
+    def clear_all_status_effects(self) -> List[str]:
+        """
+        清除宝可梦身上的所有状态效果。
+        
+        Returns:
+            包含操作结果消息的列表
+        """
+        messages: List[str] = []
+        
+        if not self.status_effects:
+            messages.append(f"{self.nickname} 没有任何状态效果。")
+            return messages
+        
+        effect_names = [se.name for se in self.status_effects]
+        self.status_effects = []
+        
+        if effect_names:
+            status_text = "、".join(effect_names)
+            messages.append(f"{self.nickname} 的所有状态效果 ({status_text}) 已清除。")
+            logger.debug(f"Cleared all status effects from {self.nickname}.")
+        
+        return messages
+
+    def restore_pp(self, skill_index: Optional[int] = None, amount: Optional[int] = None) -> List[str]:
+        """
+        恢复宝可梦技能的PP值。
+        
+        Args:
+            skill_index: 要恢复的技能索引，None表示恢复所有技能
+            amount: 要恢复的PP值，None表示完全恢复
+            
+        Returns:
+            包含操作结果消息的列表
+        """
+        messages: List[str] = []
+        
+        if not self.skills:
+            messages.append(f"{self.nickname} 没有任何技能。")
+            return messages
+        
+        if skill_index is not None:
+            # 恢复特定技能的PP
+            if 0 <= skill_index < len(self.skills):
+                skill = self.skills[skill_index]
+                old_pp = skill.current_pp
+                
+                if amount is None:
+                    skill.current_pp = skill.max_pp
+                else:
+                    skill.current_pp = min(skill.current_pp + amount, skill.max_pp)
+                    
+                pp_restored = skill.current_pp - old_pp
+                
+                if pp_restored > 0:
+                    messages.append(f"{self.nickname} 的技能 {skill.name} 恢复了 {pp_restored} 点PP。")
+                    logger.debug(f"Restored {pp_restored} PP for {self.nickname}'s skill {skill.name}")
+                else:
+                    messages.append(f"{self.nickname} 的技能 {skill.name} 的PP已满。")
+            else:
+                messages.append(f"技能索引 {skill_index} 超出范围。")
+        else:
+            # 恢复所有技能的PP
+            pp_restored = False
+            
+            for skill in self.skills:
+                old_pp = skill.current_pp
+                
+                if amount is None:
+                    skill.current_pp = skill.max_pp
+                else:
+                    skill.current_pp = min(skill.current_pp + amount, skill.max_pp)
+                    
+                if skill.current_pp > old_pp:
+                    pp_restored = True
+                    
+            if pp_restored:
+                messages.append(f"{self.nickname} 的所有技能PP已恢复。")
+                logger.debug(f"Restored PP for all skills of {self.nickname}")
+            else:
+                messages.append(f"{self.nickname} 的所有技能PP已满。")
+            
+        return messages
 
 # Assuming calculate_stats and calculate_exp_needed are defined elsewhere and imported
 # from .formulas import calculate_exp_needed # Import calculate_exp_needed

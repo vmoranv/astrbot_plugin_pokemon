@@ -101,4 +101,99 @@ class PokemonRepository:
         await execute_query(sql, (pokemon_id,))
         logger.debug(f"Deleted pokemon instance with ID: {pokemon_id}")
 
+    async def mark_orphaned_pokemon_id(self, pokemon_instance_id: int, player_id: str) -> None:
+        """
+        标记孤立的宝可梦实例ID，用于后续清理。
+        
+        Args:
+            pokemon_instance_id (int): 孤立的宝可梦实例ID
+            player_id (str): 关联的玩家ID
+        """
+        # 检查orphaned_pokemon_ids表是否存在，不存在则创建
+        await self.db.execute('''
+            CREATE TABLE IF NOT EXISTS orphaned_pokemon_ids (
+                pokemon_instance_id INTEGER PRIMARY KEY,
+                player_id TEXT NOT NULL,
+                marked_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # 插入记录，如果已存在则忽略
+        await self.db.execute('''
+            INSERT OR IGNORE INTO orphaned_pokemon_ids (pokemon_instance_id, player_id)
+            VALUES (?, ?)
+        ''', (pokemon_instance_id, player_id))
+        
+        await self.db.commit()
+
+    async def get_all_orphaned_pokemon_ids(self) -> List[Dict[str, Any]]:
+        """
+        获取所有标记为孤立的宝可梦实例ID。
+        
+        Returns:
+            List[Dict[str, Any]]: 孤立ID的列表，每个条目包含pokemon_instance_id, player_id和marked_time
+        """
+        cursor = await self.db.execute('''
+            SELECT pokemon_instance_id, player_id, marked_time
+            FROM orphaned_pokemon_ids
+        ''')
+        
+        results = await cursor.fetchall()
+        
+        return [
+            {
+                "pokemon_instance_id": row[0],
+                "player_id": row[1],
+                "marked_time": row[2]
+            }
+            for row in results
+        ]
+
+    async def pokemon_instance_exists(self, pokemon_instance_id: int) -> bool:
+        """
+        检查指定的宝可梦实例ID是否存在。
+        
+        Args:
+            pokemon_instance_id (int): 要检查的宝可梦实例ID
+            
+        Returns:
+            bool: 如果存在则返回True，否则返回False
+        """
+        cursor = await self.db.execute('''
+            SELECT COUNT(*)
+            FROM pokemon_instances
+            WHERE instance_id = ?
+        ''', (pokemon_instance_id,))
+        
+        result = await cursor.fetchone()
+        return result[0] > 0
+
+    async def delete_pokemon_instance(self, pokemon_instance_id: int) -> None:
+        """
+        删除指定的宝可梦实例。
+        
+        Args:
+            pokemon_instance_id (int): 要删除的宝可梦实例ID
+        """
+        await self.db.execute('''
+            DELETE FROM pokemon_instances
+            WHERE instance_id = ?
+        ''', (pokemon_instance_id,))
+        
+        await self.db.commit()
+
+    async def remove_orphaned_pokemon_id(self, pokemon_instance_id: int) -> None:
+        """
+        从孤立ID表中移除指定的宝可梦实例ID。
+        
+        Args:
+            pokemon_instance_id (int): 要移除的宝可梦实例ID
+        """
+        await self.db.execute('''
+            DELETE FROM orphaned_pokemon_ids
+            WHERE pokemon_instance_id = ?
+        ''', (pokemon_instance_id,))
+        
+        await self.db.commit()
+
     # 您可以在这里添加其他与 races 表相关的数据库操作方法 

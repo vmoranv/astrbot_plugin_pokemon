@@ -1,70 +1,49 @@
-# backend/core/battle/battle_logic.py
-
 import math
 import random
 from typing import List, Dict, Any, Tuple, Optional, Callable
-# Assuming Pokemon and Battle models are defined
+from backend.models.event import MissEvent
 from backend.models.pokemon import Pokemon, VolatileStatusInstance
 from backend.models.battle import Battle
-# Assuming Skill model is defined
-from backend.models.skill import Skill, SecondaryEffect # Import SecondaryEffect
-# Assuming Attribute and StatusEffect models are defined
+from backend.models.skill import Skill, SecondaryEffect
 from backend.models.attribute import Attribute
-from backend.models.status_effect import StatusEffect, MajorStatusType # Import StatusEffect model and MajorStatusType
-from backend.models.ability import Ability # Import Ability model
-from backend.models.item import Item, ItemEffectType # Import Item model and ItemEffectType
-# Import formulas for calculations
+from backend.models.status_effect import StatusEffect, MajorStatusType
+from backend.models.item import Item, ItemEffectType
 from backend.core.battle.formulas import (
     calculate_damage,
-    get_type_effectiveness, # This function is now deprecated/modified, will be replaced by calculate_type_effectiveness
+    get_type_effectiveness,
     check_run_success,
     calculate_catch_rate_value_A,
     perform_catch_shakes,
-    calculate_type_effectiveness, # Import the modified function
+    calculate_type_effectiveness,
     check_accuracy,
     check_critical_hit,
     calculate_stat_stage_modifier,
-    get_effective_stat # Import calculation functions
+    get_effective_stat
 )
-# Assuming MetadataRepository is available
-from backend.data_access.metadata_loader import MetadataRepository # Import MetadataRepository
-# Import battle events
+from backend.data_access.metadata_loader import MetadataRepository
 from backend.core.battle.events import (
     BattleEvent, StatStageChangeEvent, DamageDealtEvent, FaintEvent,
     StatusEffectAppliedEvent, StatusEffectRemovedEvent, HealEvent,
     AbilityTriggerEvent, FieldEffectEvent, VolatileStatusChangeEvent,
-    ForcedSwitchEvent, ItemTriggerEvent, AbilityChangeEvent, # Import new event types
-    MoveMissedEvent, BattleMessageEvent, SkillUsedEvent, # Import additional events and SkillUsedEvent
+    ForcedSwitchEvent, ItemTriggerEvent, AbilityChangeEvent,
+    MoveMissedEvent, BattleMessageEvent, SkillUsedEvent,
     BattleEndEvent, SwitchOutEvent, SwitchInEvent, ExperienceChangeEvent,
     SkillLearnedEvent, EvolutionEvent, CatchAttemptEvent, RunAttemptEvent,
-    ConfusionDamageEvent, FlinchEvent, # Import ConfusionDamageEvent and FlinchEvent
-    ItemUsedEvent, # Import ItemUsedEvent
-    CaptureAttemptEvent, # Import CaptureAttemptEvent
-    CaptureSuccessEvent, # Import CaptureSuccessEvent
-    CaptureFailureEvent, # Import CaptureFailureEvent
-    PPHealEvent, # Import PPHealEvent
-    VolatileStatusAppliedEvent, VolatileStatusRemovedEvent, 
-    VolatileStatusTriggeredEvent
+    ConfusionDamageEvent, FlinchEvent,
+    ItemUsedEvent,
+    CaptureAttemptEvent, CaptureSuccessEvent, CaptureFailureEvent,
+    PPHealEvent, VolatileStatusAppliedEvent, VolatileStatusRemovedEvent, 
+    VolatileStatusTriggeredEvent, MissEvent
 )
-# Import handlers
-from backend.core.battle.status_effect_handler import StatusEffectHandler # Import StatusEffectHandler
-# Import logger
+from backend.core.battle.status_effect_handler import StatusEffectHandler
 from backend.utils.logger import get_logger
-from backend.core.game_logic import GameLogic # Import GameLogic for use in BattleLogic
-from backend.utils.effectiveness import EffectivenessCalculator
-from backend.core.pet.evolution_handler import EvolutionHandler # Import EvolutionHandler
-from backend.core.pokemon_factory import PokemonFactory # Import PokemonFactory
-import json # 导入 json 模块
-from backend.models.events import (
-    BattleEvent, DamageEvent, HealEvent, StatusEffectEvent, 
-    FaintEvent, BattleMessageEvent, ExperienceGainedEvent, LevelUpEvent, 
-    EvolutionEvent, SkillLearnedEvent, PPHealEvent, MissEvent,
-    StatStageChangeEvent # 新增导入
-)
+from backend.core.game_logic import GameLogic
+from backend.core.pet.evolution_handler import EvolutionHandler
+from backend.core.services.pokemon_factory import PokemonFactory
+
 
 logger = get_logger(__name__)
 
-# Define event listener type hint
 EventListener = Callable[[Battle, BattleEvent], None]
 
 class BattleLogic:
@@ -81,10 +60,12 @@ class BattleLogic:
     def __init__(self, metadata_repo: MetadataRepository, status_effect_handler: StatusEffectHandler, pokemon_factory: PokemonFactory): # 添加 pokemon_factory 参数
         self._metadata_repo = metadata_repo
         self._status_effect_handler = status_effect_handler
-        self._pokemon_factory = pokemon_factory # 初始化 PokemonFactory
         self._evolution_handler = EvolutionHandler(metadata_repo, pokemon_factory) # 初始化 EvolutionHandler
+        self._pokemon_factory = pokemon_factory # 保存 pokemon_factory 实例
+        self._game_logic = GameLogic(metadata_repo) # 初始化 GameLogic
         self._event_subscribers: Dict[str, List[Callable[[BattleEvent], None]]] = {}
         self._battle_event_history: List[BattleEvent] = []
+
 
     def subscribe(self, event_type: str, listener: Callable[[BattleEvent], None]):
         """Subscribes a listener function to a specific event type."""
@@ -106,109 +87,196 @@ class BattleLogic:
 
     async def _execute_item_action(self, battle: Battle, user: Pokemon, item_id: int, target_pokemon_id: Optional[int] = None) -> List[BattleEvent]:
         """
-        Executes the action of using an item in battle.
+        执行战斗中的道具使用动作。
 
         Args:
-            battle: The current battle instance.
-            user: The Pokemon using the item.
-            item_id: The ID of the item being used.
-            target_pokemon_id: The ID of the target Pokemon, if applicable.
+            battle: 当前的战斗对象。
+            user: 使用道具的宝可梦。
+            item_id: 使用的道具ID。
+            target_pokemon_id: 目标宝可梦的实例ID。
 
         Returns:
-            A list of BattleEvents generated by the item action.
+            一个包含本次动作产生的战斗事件的列表。
         """
         events: List[BattleEvent] = []
-        item = await self._metadata_repo.get_item_data(item_id)
+        item = await self._metadata_repo.get_item_by_id(item_id)
         if not item:
-            logger.error(f"在 _execute_item_action 中找不到道具 ID: {item_id}")
-            events.append(BattleMessageEvent(message=f"找不到指定的道具。"))
+            logger.error(f"Item with ID {item_id} not found in metadata.")
+            events.append(BattleMessageEvent(message="找不到指定的道具。"))
             return events
 
-        actual_user = battle.get_pokemon_instance_by_id(user.pokemon_id)
-        if not actual_user:
-            logger.error(f"道具使用者 {user.name} (ID: {user.pokemon_id}) 不在战斗中。")
-            events.append(BattleMessageEvent(message=f"道具使用者不在战斗中。"))
-            return events
-
-        target_pokemon = None
+        target_pokemon: Optional[Pokemon] = None
         if target_pokemon_id:
-            target_pokemon = battle.get_pokemon_instance_by_id(target_pokemon_id)
-            if not target_pokemon:
-                logger.error(f"道具目标 ID: {target_pokemon_id} 不在战斗中。")
-                events.append(BattleMessageEvent(message=f"道具目标不在战斗中。"))
-                return events
-        
+            target_pokemon = battle.get_pokemon_by_instance_id(target_pokemon_id)
+
         item_effect_type = item.effect_type
-        
+
+        def create_item_used_event(consumed: bool = True) -> ItemUsedEvent:
+            message = f"{user.nickname} 对 {target_pokemon.nickname} 使用了 {item.name}！" if target_pokemon else f"{user.nickname} 使用了 {item.name}！"
+            return ItemUsedEvent(
+                item_id=item.item_id,
+                item_name=item.name,
+                user_id=user.instance_id,
+                user_name=user.nickname,
+                target_id=target_pokemon.instance_id if target_pokemon else None,
+                target_name=target_pokemon.nickname if target_pokemon else None,
+                message=message,
+                consumed=consumed
+            )
+
+        # 大多数治疗和增益道具需要一个目标
+        if item_effect_type in [
+            ItemEffectType.HEAL_HP.value,
+            ItemEffectType.CURE_STATUS.value,
+            ItemEffectType.HEAL_PP.value,
+            ItemEffectType.STAT_BOOST_BATTLE.value
+        ]:
+            if not target_pokemon:
+                logger.warning(f"Item {item.name} ({item_effect_type}) requires a target Pokemon.")
+                events.append(BattleMessageEvent(message=f"使用 {item.name} 需要选择一个宝可梦作为目标。"))
+                return events
+
         # 处理各种道具效果类型
         if item_effect_type == ItemEffectType.HEAL_HP.value:
-            # ... 已有代码 ...
+            if target_pokemon.current_hp <= 0:
+                events.append(BattleMessageEvent(message=f"{target_pokemon.nickname} 已经倒下，无法恢复HP。"))
+                return events
+            if target_pokemon.current_hp >= target_pokemon.stats['hp']:
+                events.append(BattleMessageEvent(message=f"{target_pokemon.nickname} 的HP已满。"))
+                return events
+
+            heal_amount = 0
+            if item.use_effect and item.use_effect.isdigit():
+                heal_amount = int(item.use_effect)
+            elif item.use_effect == 'max':
+                heal_amount = target_pokemon.stats['hp']
+            
+            if heal_amount > 0:
+                original_hp = target_pokemon.current_hp
+                target_pokemon.current_hp = min(target_pokemon.stats['hp'], original_hp + heal_amount)
+                amount_healed = target_pokemon.current_hp - original_hp
+                
+                events.append(create_item_used_event())
+                events.append(HealEvent(
+                    target_instance_id=target_pokemon.instance_id,
+                    target_name=target_pokemon.nickname,
+                    amount_healed=amount_healed,
+                    current_hp=target_pokemon.current_hp,
+                    max_hp=target_pokemon.stats['hp'],
+                    source='item',
+                    message=f"{target_pokemon.nickname} 恢复了 {amount_healed} HP！"
+                ))
+            else:
+                events.append(BattleMessageEvent(message=f"{item.name} 没有效果。"))
+
         elif item_effect_type == ItemEffectType.CURE_STATUS.value:
-            # ... 已有代码 ...
+            if not target_pokemon.major_status:
+                events.append(BattleMessageEvent(message=f"{target_pokemon.nickname} 没有异常状态。"))
+                return events
+
+            status_to_cure = item.use_effect.upper()
+            if status_to_cure == 'ALL' or status_to_cure == target_pokemon.major_status.name:
+                cured_status = target_pokemon.major_status
+                target_pokemon.major_status = None
+                events.append(create_item_used_event())
+                events.append(StatusEffectRemovedEvent(
+                    target_instance_id=target_pokemon.instance_id,
+                    target_name=target_pokemon.nickname,
+                    status_name=cured_status.value,
+                    message=f"{target_pokemon.nickname} 的 {cured_status.value} 状态解除了！"
+                ))
+            else:
+                events.append(BattleMessageEvent(message=f"{item.name} 对 {target_pokemon.nickname} 的状态没有效果。"))
+
         elif item_effect_type == ItemEffectType.HEAL_PP.value:
-            # ... 已有代码 ...
+            pp_healed_total = 0
+            for skill_instance in target_pokemon.skills:
+                skill_data = await self._metadata_repo.get_skill_by_id(skill_instance.skill_id)
+                if skill_instance.current_pp < skill_data.pp:
+                    heal_amount = 0
+                    if item.use_effect and item.use_effect.isdigit():
+                        heal_amount = int(item.use_effect)
+                    elif item.use_effect == 'max':
+                        heal_amount = skill_data.pp
+                    
+                    original_pp = skill_instance.current_pp
+                    skill_instance.current_pp = min(skill_data.pp, original_pp + heal_amount)
+                    pp_healed_total += (skill_instance.current_pp - original_pp)
+
+            if pp_healed_total > 0:
+                events.append(create_item_used_event())
+                events.append(PPHealEvent(
+                    target_instance_id=target_pokemon.instance_id,
+                    target_name=target_pokemon.nickname,
+                    amount_healed=pp_healed_total,
+                    message=f"{target_pokemon.nickname} 的技能PP恢复了！"
+                ))
+            else:
+                events.append(BattleMessageEvent(message=f"{target_pokemon.nickname} 的所有技能PP都已回满。"))
+
         elif item_effect_type == ItemEffectType.STAT_BOOST_BATTLE.value:
-            # ... 已有代码 ...
+            try:
+                stat_str, stage_str = item.use_effect.split(':')
+                stage_change = int(stage_str)
+                stat_to_boost = stat_str.lower()
+                
+                current_stage = target_pokemon.stat_stages.get(stat_to_boost, 0)
+                if current_stage >= self.MAX_STAT_STAGE:
+                    events.append(BattleMessageEvent(message=f"{target_pokemon.nickname} 的能力已经无法再提升了！"))
+                    return events
+                
+                new_stage = min(self.MAX_STAT_STAGE, current_stage + stage_change)
+                actual_change = new_stage - current_stage
+                target_pokemon.stat_stages[stat_to_boost] = new_stage
+                
+                events.append(create_item_used_event())
+                events.append(StatStageChangeEvent(
+                    target_instance_id=target_pokemon.instance_id,
+                    target_name=target_pokemon.nickname,
+                    stat=stat_to_boost,
+                    change=actual_change,
+                    message=f"{target_pokemon.nickname} 的 {stat_to_boost} 大幅提升了！" if actual_change > 1 else f"{target_pokemon.nickname} 的 {stat_to_boost} 提升了！"
+                ))
+            except (ValueError, KeyError) as e:
+                logger.error(f"解析道具 {item.name} 的 use_effect '{item.use_effect}' 失败: {e}", exc_info=True)
+                events.append(BattleMessageEvent(message=f"使用 {item.name} 时发生错误。"))
+
         elif item_effect_type == ItemEffectType.EVOLUTION.value:
-            # 进化道具需要目标宝可梦
             if not target_pokemon:
                 logger.warning(f"道具 {item.name} (EVOLUTION) 需要目标宝可梦。")
                 events.append(BattleMessageEvent(message=f"使用 {item.name} 需要选择一个宝可梦作为目标。"))
                 return events
             
-            # 检查目标是否是玩家的宝可梦（不能对敌方宝可梦使用进化道具）
-            if target_pokemon.trainer_id != user.trainer_id:
-                logger.warning(f"不能对敌方宝可梦 {target_pokemon.name} 使用进化道具 {item.name}。")
-                events.append(BattleMessageEvent(message=f"不能对敌方宝可梦使用 {item.name}。"))
-                return events
-            
-            # 使用 EvolutionHandler 检查并处理进化
             try:
-                # 假设 battle_logic 有一个 evolution_handler 属性
                 evolution_event = await self._evolution_handler.check_and_process_evolution(target_pokemon, item)
                 
                 if evolution_event:
-                    # 进化成功
+                    events.append(create_item_used_event())
                     events.append(evolution_event)
-                    events.append(ItemUsedEvent(
-                        item_id=item.item_id,
-                        item_name=item.name,
-                        user_id=user.pokemon_id,
-                        user_name=user.name,
-                        target_id=target_pokemon.pokemon_id if target_pokemon else None,
-                        target_name=target_pokemon.name if target_pokemon else None,
-                        message=f"{user.name} 对 {target_pokemon.name} 使用了 {item.name}！"
-                    ))
-                    return events
                 else:
-                    # 进化未发生 (可能条件不满足，或者道具不能触发进化)
-                    events.append(BattleMessageEvent(message=f"{item.name} 对 {target_pokemon.name} 没有效果。"))
-                    return events # 道具不消耗
+                    events.append(BattleMessageEvent(message=f"{item.name} 对 {target_pokemon.nickname} 没有效果。"))
             except Exception as e:
                 logger.error(f"使用进化道具 {item.name} 时发生错误: {e}", exc_info=True)
                 events.append(BattleMessageEvent(message=f"使用 {item.name} 时发生错误。"))
-                return events
-                
+
         elif item_effect_type == ItemEffectType.CAPTURE.value:
-            # 捕获道具需要目标宝可梦
             if not target_pokemon:
                 logger.warning(f"道具 {item.name} (CAPTURE) 需要目标宝可梦。")
                 events.append(BattleMessageEvent(message=f"使用 {item.name} 需要选择一个宝可梦作为目标。"))
                 return events
             
-            # 检查目标是否是野生宝可梦（不能捕获训练家的宝可梦）
             if target_pokemon.trainer_id is not None and target_pokemon.trainer_id != 0:
                 logger.warning(f"不能捕获训练家的宝可梦 {target_pokemon.name}。")
                 events.append(BattleMessageEvent(message=f"不能捕获训练家的宝可梦。"))
                 return events
             
-            # 检查战斗类型是否允许捕获
             if battle.battle_type != "wild":
                 logger.warning(f"只能在野生战斗中使用捕获道具 {item.name}。")
                 events.append(BattleMessageEvent(message=f"只能在野生战斗中使用 {item.name}。"))
                 return events
             
-            # 解析捕获率修正值
+            events.append(create_item_used_event())
+
             capture_rate_modifier = 1.0
             if item.use_effect:
                 try:
@@ -216,94 +284,54 @@ class BattleLogic:
                 except ValueError:
                     logger.warning(f"道具 {item.name} 的 use_effect 值 '{item.use_effect}' 无法解析为捕获率修正值，使用默认值 1.0。")
             
-            # 计算捕获成功率
-            # 这里简化处理，实际游戏中捕获率计算更复杂
             base_capture_rate = await self._metadata_repo.get_pokemon_capture_rate(target_pokemon.race_id)
             if base_capture_rate is None:
-                base_capture_rate = 45  # 默认值，大多数普通宝可梦的捕获率
+                base_capture_rate = 45
             
-            # 计算HP比例因子 (HP越低，捕获率越高)
-            hp_factor = 1.0
-            if hasattr(target_pokemon, 'current_hp') and hasattr(target_pokemon, 'get_stat'):
-                max_hp = target_pokemon.get_stat("hp")
-                if max_hp > 0:
-                    hp_ratio = target_pokemon.current_hp / max_hp
-                    hp_factor = 2.0 - hp_ratio  # HP为满时是1.0，HP为0时是2.0
+            status_bonus = 1.0
+            if target_pokemon.major_status:
+                if target_pokemon.major_status in [MajorStatusType.SLEEP, MajorStatusType.FREEZE]:
+                    status_bonus = 2.5
+                else:
+                    status_bonus = 1.5
+
+            A = calculate_catch_rate_value_A(
+                max_hp=target_pokemon.stats['hp'],
+                current_hp=target_pokemon.current_hp,
+                capture_rate=base_capture_rate,
+                ball_bonus=capture_rate_modifier,
+                status_bonus=status_bonus
+            )
             
-            # 计算状态效果因子 (有些状态效果会提高捕获率)
-            status_factor = 1.0
-            for status in target_pokemon.status_effects:
-                if status.effect_type in ["sleep", "freeze"]:
-                    status_factor = 2.5
-                    break
-                elif status.effect_type in ["paralyze", "poison", "burn"]:
-                    status_factor = 1.5
-                    break
+            shakes = perform_catch_shakes(A)
             
-            # 最终捕获率计算
-            final_capture_rate = min(255, base_capture_rate * capture_rate_modifier * hp_factor * status_factor)
+            events.append(CaptureAttemptEvent(
+                item_name=item.name,
+                target_name=target_pokemon.nickname,
+                shakes=shakes,
+                message=f"你扔出了一个 {item.name}！"
+            ))
             
-            # 随机决定是否捕获成功
-            capture_roll = random.randint(0, 255)
-            capture_success = capture_roll < capture_threshold
-            
-            if capture_success:
-                # 捕获成功
-                events.append(BattleMessageEvent(message=f"{target_pokemon.name} 被捕获了！"))
-                events.append(ItemUsedEvent(
-                    item_id=item.item_id,
-                    item_name=item.name,
-                    user_id=user.pokemon_id,
-                    user_name=user.name,
-                    target_id=target_pokemon.pokemon_id,
-                    target_name=target_pokemon.name,
-                    message=f"{user.name} 对 {target_pokemon.name} 使用了 {item.name}！"
+            if shakes == 4:
+                battle.is_capture_successful = True
+                events.append(CaptureSuccessEvent(
+                    pokemon_name=target_pokemon.nickname,
+                    message=f"太棒了！{target_pokemon.nickname} 被成功捕获了！"
                 ))
-                
-                # 设置战斗结果为捕获成功
-                battle.result = "capture"
-                battle.captured_pokemon_id = target_pokemon.pokemon_id
-                
-                # 结束战斗
-                battle.is_active = False
-                battle_end_event = BattleEndEvent(
-                    winner_id=user.trainer_id,
-                    loser_id=None,  # 野生战斗没有败者ID
-                    result="capture",
-                    message=f"战斗结束！{user.name} 成功捕获了野生的 {target_pokemon.name}！"
-                )
-                events.append(battle_end_event)
-                
-                return events
             else:
-                # 捕获失败
-                shake_count = min(3, int(capture_threshold / 85))  # 0-3次摇晃
-                shake_message = ""
-                if shake_count == 0:
-                    shake_message = f"{target_pokemon.name} 立刻从精灵球中挣脱出来了！"
-                elif shake_count == 1:
-                    shake_message = f"精灵球摇晃了1次，但 {target_pokemon.name} 挣脱出来了！"
-                elif shake_count == 2:
-                    shake_message = f"精灵球摇晃了2次，但 {target_pokemon.name} 挣脱出来了！"
-                elif shake_count == 3:
-                    shake_message = f"精灵球摇晃了3次，差一点就成功了，但 {target_pokemon.name} 挣脱出来了！"
-                
-                events.append(BattleMessageEvent(message=shake_message))
-                events.append(ItemUsedEvent(
-                    item_id=item.item_id,
-                    item_name=item.name,
-                    user_id=user.pokemon_id,
-                    user_name=user.name,
-                    target_id=target_pokemon.pokemon_id,
-                    target_name=target_pokemon.name,
-                    message=f"{user.name} 对 {target_pokemon.name} 使用了 {item.name}！"
+                messages = [
+                    "噢，不对！差一点就抓住了！",
+                    "可恶！就差那么一点了！",
+                    "唉！它从精灵球里出来了！"
+                ]
+                events.append(CaptureFailureEvent(
+                    pokemon_name=target_pokemon.nickname,
+                    message=random.choice(messages)
                 ))
-                
-                return events
         else:
             logger.warning(f"未知的道具效果类型: {item_effect_type} for item {item.name}")
-            events.append(BattleMessageEvent(message=f"道具 {item.name} 似乎没有任何效果。"))
-        
+            events.append(BattleMessageEvent(message=f"无法使用 {item.name}。"))
+
         return events
 
     def _apply_stat_stage_change(self, pokemon: Pokemon, stat_name: str, change: int, source_name: str) -> Tuple[int, int, Optional[str]]:
@@ -687,50 +715,107 @@ class BattleLogic:
         
         return messages.get(status_type, default_messages).get(action, default_messages[action])
     
-    def execute_skill(self, battle: Battle, attacker: Pokemon, target: Pokemon, skill: Skill) -> List[BattleEvent]:
+    async def execute_skill(self, battle: Battle, attacker: Pokemon, defender: Pokemon, skill: Skill) -> Dict[str, Any]:
         """
-        执行技能攻击。
+        执行技能攻击，计算伤害并生成事件。
         
-        Args:
-            battle: 战斗实例
+        参数:
+            battle: 当前战斗信息
             attacker: 攻击方宝可梦
-            target: 防守方宝可梦
+            defender: 防守方宝可梦
             skill: 使用的技能
             
-        Returns:
-            List[BattleEvent]: 执行过程中产生的事件列表
+        返回:
+            包含事件和状态效果的字典
         """
-        events = []
-        
-        # 检查攻击方是否能够行动
-        can_act, reason, event = self.can_pokemon_act(attacker)
-        if not can_act:
-            if event:
-                events.append(event)
-            return events
+        result = {
+            "events": [],
+            "status_effects": []
+        }
         
         # 检查技能是否命中
-        # 这部分逻辑可能已经在其他地方实现
+        accuracy_check = self.calculate_accuracy_check(attacker, defender, skill)
+        if not accuracy_check["hit"]:
+            # 技能未命中
+            result["events"].append(MissEvent(
+                attacker_instance_id=attacker.instance_id,
+                attacker_name=attacker.nickname,
+                defender_instance_id=defender.instance_id,
+                defender_name=defender.nickname,
+                skill_id=skill.skill_id,
+                skill_name=skill.name,
+                message=f"{skill.name}没有命中！"
+            ))
+            return result
         
-        # 处理技能效果
-        # 这部分逻辑可能已经在其他地方实现
+        # 计算技能伤害
+        if skill.category in ["physical", "special"]:
+            damage_result = self.calculate_damage(attacker, defender, skill)
+            damage = damage_result["damage"]
+            is_critical = damage_result["is_critical"]
+            type_effectiveness = damage_result["type_effectiveness"]
+            
+            # 应用伤害
+            defender.current_hp = max(0, defender.current_hp - damage)
+            if defender.current_hp == 0:
+                defender.is_fainted = True
+            
+            # 添加伤害事件
+            result["events"].append(DamageDealtEvent(
+                attacker_instance_id=attacker.instance_id,
+                attacker_name=attacker.nickname,
+                defender_instance_id=defender.instance_id,
+                defender_name=defender.nickname,
+                skill_id=skill.skill_id,
+                skill_name=skill.name,
+                damage=damage,
+                is_critical=is_critical,
+                type_effectiveness=type_effectiveness,
+                message=self._get_damage_message(damage, is_critical, type_effectiveness, defender.nickname)
+            ))
         
-        # 处理技能的附加效果，如施加挥发性状态
-        if skill.additional_effects:
-            for effect in skill.additional_effects:
-                if effect.effect_type == "apply_volatile_status":
-                    # 根据几率判断是否触发附加效果
-                    if random.random() < effect.chance:
-                        status_type = effect.params.get("status_type")
-                        turns = effect.params.get("turns")
-                        events.extend(self.apply_volatile_status(
-                            pokemon=target,
-                            status_type=status_type,
-                            turns=turns,
-                            source_skill_id=skill.skill_id
-                        ))
+        # 处理状态效果
+        if skill.status_effect_chance > 0 and random.random() < skill.status_effect_chance:
+            status_effect = self.metadata_repo.get_status_effect_by_id(skill.status_effect_id)
+            if status_effect:
+                # 检查目标是否已有该状态效果
+                has_effect = any(se.status_effect_id == status_effect.status_effect_id 
+                                for se in defender.current_status_effects)
+                
+                if not has_effect:
+                    # 创建新的状态效果实例
+                    effect_instance = StatusEffect(
+                        status_effect_id=status_effect.status_effect_id,
+                        name=status_effect.name,
+                        effect_type=status_effect.effect_type,
+                        duration=status_effect.base_duration,
+                        application_message=status_effect.application_message,
+                        effect_data=status_effect.effect_data
+                    )
+                    
+                    # 添加到结果中
+                    result["status_effects"].append({
+                        "target": defender,
+                        "effect": effect_instance
+                    })
         
-        return events
+        return result
+
+    def _get_damage_message(self, damage: int, is_critical: bool, type_effectiveness: float, defender_name: str) -> str:
+        """生成伤害消息。"""
+        message = f"对 {defender_name} 造成了 {damage} 点伤害！"
+        
+        if is_critical:
+            message = "会心一击！" + message
+        
+        if type_effectiveness > 1.0:
+            message += "效果拔群！"
+        elif type_effectiveness < 1.0 and type_effectiveness > 0:
+            message += "效果不太好..."
+        elif type_effectiveness == 0:
+            message = f"对 {defender_name} 没有效果..."
+        
+        return message
     
     def handle_battle_end(self, battle: Battle) -> None:
         """

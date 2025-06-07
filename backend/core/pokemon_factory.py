@@ -1,132 +1,193 @@
+from typing import Dict, List, Optional, Any
 import random
-from typing import Optional, List
 from backend.models.pokemon import Pokemon
-from backend.models.race import Race # Need Race data for base stats, type, abilities, moves
-from backend.models.skill import Skill # Need Skill data for initial moves
-# from backend.services.metadata_service import MetadataService # Core should not depend on Services
-from backend.core.battle.formulas import calculate_stats # Assuming this function exists
+from backend.models.race import Race
+from backend.models.skill import Skill
+from backend.utils.logger import get_logger
+from backend.core.battle.formulas import calculate_stats
+
+logger = get_logger(__name__)
 
 class PokemonFactory:
-    """Factory for creating Pokemon instances."""
-
-    async def create_pokemon_instance(
-        self,
-        race_data: Race,
-        level: int,
-        owner_id: Optional[str] = None,
-        is_wild: bool = True
-    ) -> Pokemon:
+    """宝可梦工厂类，负责创建各种宝可梦实例"""
+    
+    def __init__(self, metadata_repo=None):
         """
-        Creates a new Pokemon instance.
-        Requires Race data, desired level, optional owner ID, and wild status.
+        初始化宝可梦工厂
+        
+        Args:
+            metadata_repo: 元数据仓库，用于获取宝可梦种族、技能等数据
         """
-        # This factory function uses pure logic to initialize a Pokemon object.
-        # It needs Race data to determine base stats, types, abilities, and initial moves.
-        # It should NOT fetch Race data itself; that should be done by the Service layer.
-
-        # 1. Generate IVs (Individual Values) - random numbers for each stat (0-31)
+        self.metadata_repo = metadata_repo
+        
+    async def create_wild_pokemon(self, race_id: int, level: int) -> Pokemon:
+        """
+        创建野生宝可梦实例
+        
+        Args:
+            race_id: 宝可梦种族ID
+            level: 宝可梦等级
+            
+        Returns:
+            创建的宝可梦实例
+        """
+        # 获取种族数据
+        race = await self.metadata_repo.get_pokemon_race(race_id)
+        if not race:
+            logger.error(f"无法找到种族ID: {race_id}")
+            return None
+            
+        # 随机生成个体值 (IVs)
         ivs = {
             "hp": random.randint(0, 31),
             "attack": random.randint(0, 31),
             "defense": random.randint(0, 31),
-            "special_attack": random.randint(0, 31),
-            "special_defense": random.randint(0, 31),
-            "speed": random.randint(0, 31),
+            "sp_attack": random.randint(0, 31),
+            "sp_defense": random.randint(0, 31),
+            "speed": random.randint(0, 31)
         }
-
-        # 2. Initialize EVs (Effort Values) - start at 0
-        evs = {
-            "hp": 0,
-            "attack": 0,
-            "defense": 0,
-            "special_attack": 0,
-            "special_defense": 0,
-            "speed": 0,
-        }
-
-        # 3. Determine Nature (affects two stats, one +10%, one -10%) - random for wild pokemon
-        # Need a list of natures and their effects. This could be metadata.
-        # For simplicity, let's skip Nature for MVP or pick a neutral one.
-        # Assuming Nature is represented by an ID or string.
-        nature = "hardy" # Placeholder: neutral nature
-
-        # 4. Determine Ability - pick one from the race's abilities (random for wild)
-        # Assuming Race data has a list of possible ability IDs.
-        # ability_id = random.choice(race_data.abilities) if race_data.abilities else None
-        ability_id = race_data.abilities[0] if race_data.abilities else None # Pick first ability for simplicity
-
-        # 5. Determine initial moveset
-        # Wild pokemon usually have moves based on their level.
-        # Need to get the list of moves the race learns by level (from Race data).
-        # Select the latest 4 moves learned up to the current level.
-        # Assuming Race data has a list of learnable moves with levels:
-        # race_data.learnable_moves = [{"skill_id": 1, "level": 1}, {"skill_id": 5, "level": 7}, ...]
-        # Need access to Skill data to create Skill objects for the moveset.
-        # This requires Skill data to be passed in or fetched by the Service layer.
-        # Let's assume the Service layer provides the list of possible skills for this race.
-
-        # For MVP, let's just give it a placeholder move or no moves initially.
-        # A proper implementation needs the list of skills the race can learn.
-        # Let's assume the Service layer passes a list of relevant Skill objects.
-        # Example: skills_for_race = await metadata_service.get_skills_for_race(race_data.race_id)
-        # Then filter skills_for_race by level <= pokemon.level and pick up to 4.
-
-        # Placeholder for moves:
-        initial_skills: List[Skill] = []
-        # In a real implementation:
-        # learned_moves_at_level = [skill for skill in skills_for_race if skill.learn_level <= level]
-        # initial_skills = sorted(learned_moves_at_level, key=lambda s: s.learn_level, reverse=True)[:4] # Get latest 4
-
-        # 6. Calculate initial stats
-        # Assuming calculate_stats function exists in core.battle.formulas
-        # It needs the Pokemon object (partially created), Race data, and Nature.
-        # We need to create the Pokemon object first, then calculate stats.
-
+        
+        # 随机选择性格
+        natures = ["hardy", "lonely", "brave", "adamant", "naughty", "bold", "docile", "relaxed", "impish", "lax", 
+                   "timid", "hasty", "serious", "jolly", "naive", "modest", "mild", "quiet", "bashful", "rash", 
+                   "calm", "gentle", "sassy", "careful", "quirky"]
+        nature = random.choice(natures)
+        
+        # 获取该种族此等级可学会的技能
+        known_skills = await self.metadata_repo.get_skills_for_race_at_level(race_id, level)
+        if not known_skills:
+            logger.warning(f"种族ID {race_id} 在等级 {level} 没有可用技能")
+            known_skills = []
+        
+        # 创建宝可梦实例
         pokemon = Pokemon(
-            pokemon_id=None, # ID will be assigned when saved to DB (Service layer)
-            owner_id=owner_id,
-            race_id=race_data.race_id,
-            name=race_data.name, # Use race name as default name
-            nickname=race_data.name, # Use race name as default nickname
+            instance_id=None,  # 数据库将分配ID
+            species_id=race_id,
+            player_id=None,  # 野生宝可梦没有所属玩家
+            nickname=None,
             level=level,
-            experience=0, # Start with 0 EXP at the beginning of a level
+            experience=self._calculate_exp_for_level(level),
             ivs=ivs,
-            evs=evs,
+            evs={"hp": 0, "attack": 0, "defense": 0, "sp_attack": 0, "sp_defense": 0, "speed": 0},
             nature=nature,
-            ability_id=ability_id,
-            skills=initial_skills, # Add the determined initial skills
-            current_hp=0, # Will be set to max_hp after stats calculation
-            status_effect=None,
-            is_wild=is_wild,
-            location_id=None, # Location is set when encountered/placed
-            held_item_id=None,
-            friendship=0, # Start with base friendship
-            met_location=None,
-            met_level=level,
-            can_evolve_to=None,
-            stats={}, # Stats will be calculated next
-            max_hp=0 # Max HP will be calculated next
+            types=race.types,
+            skills=[s.skill_id for s in known_skills[:4]],  # 最多4个技能
+            current_hp=None,  # 稍后计算
+            status_condition=None,
+            friendship=70,  # 野生宝可梦的初始友好度
+            catch_rate=race.catch_rate,
+            is_shiny=random.random() < 0.0008,  # 闪光率约1/1250
+            is_wild=True
         )
-
-        # Calculate initial stats and set current HP to max HP
-        pokemon.stats = calculate_stats(pokemon, race_data)
-        pokemon.max_hp = pokemon.stats.get("hp", 1) # Get calculated HP stat, default to 1
-        pokemon.current_hp = pokemon.max_hp # Start with full HP
-
-        logger.info(f"Created new Pokemon instance: {pokemon.nickname} (Race ID: {pokemon.race_id}, Level: {pokemon.level})")
-
+        
+        # 计算能力值
+        pokemon.stats = calculate_stats(pokemon, race)
+        pokemon.current_hp = pokemon.stats["hp"]  # 野生宝可梦初始满HP
+        
         return pokemon
+    
+    async def create_starter_pokemon(self, race_id: int, level: int = 5, nickname: str = None) -> Pokemon:
+        """
+        创建初始宝可梦实例
+        
+        Args:
+            race_id: 宝可梦种族ID
+            level: 宝可梦等级，默认为5
+            nickname: 宝可梦昵称，默认为None
+            
+        Returns:
+            创建的宝可梦实例
+        """
+        # 获取种族数据
+        race = await self.metadata_repo.get_pokemon_race(race_id)
+        if not race:
+            logger.error(f"无法找到种族ID: {race_id}")
+            return None
+        
+        # 初始宝可梦有较高的个体值
+        ivs = {
+            "hp": random.randint(20, 31),
+            "attack": random.randint(20, 31),
+            "defense": random.randint(20, 31),
+            "sp_attack": random.randint(20, 31),
+            "sp_defense": random.randint(20, 31),
+            "speed": random.randint(20, 31)
+        }
+        
+        # 获取该种族此等级可学会的技能
+        known_skills = await self.metadata_repo.get_skills_for_race_at_level(race_id, level)
+        if not known_skills:
+            logger.warning(f"种族ID {race_id} 在等级 {level} 没有可用技能")
+            known_skills = []
+        
+        # 创建宝可梦实例
+        pokemon = Pokemon(
+            instance_id=None,  # 数据库将分配ID
+            species_id=race_id,
+            player_id=None,  # 稍后分配
+            nickname=nickname,
+            level=level,
+            experience=self._calculate_exp_for_level(level),
+            ivs=ivs,
+            evs={"hp": 0, "attack": 0, "defense": 0, "sp_attack": 0, "sp_defense": 0, "speed": 0},
+            nature=random.choice(["hardy", "docile", "bashful", "quirky", "serious"]),  # 中性性格
+            types=race.types,
+            skills=[s.skill_id for s in known_skills],
+            current_hp=None,  # 稍后计算
+            status_condition=None,
+            friendship=120,  # 初始宝可梦友好度较高
+            catch_rate=race.catch_rate,
+            is_shiny=random.random() < 0.001,  # 初始宝可梦闪光率更高
+            is_wild=False
+        )
+        
+        # 计算能力值
+        pokemon.stats = calculate_stats(pokemon, race)
+        pokemon.current_hp = pokemon.stats["hp"]  # 初始宝可梦满HP
+        
+        return pokemon
+    
+    def _calculate_exp_for_level(self, level: int) -> int:
+        """
+        计算指定等级所需的经验值
+        
+        Args:
+            level: 宝可梦等级
+            
+        Returns:
+            达到该等级所需的经验值
+        """
+        # 简化的经验计算公式，实际游戏中更复杂
+        return level ** 3 
 
-# Example usage (in Service layer):
-# from backend.core.pokemon_factory import PokemonFactory
-# from backend.services.metadata_service import MetadataService
-#
-# metadata_service = MetadataService()
-# pokemon_factory = PokemonFactory()
-#
-# race_data = await metadata_service.get_race(race_id)
-# # skills_for_race = await metadata_service.get_skills_for_race(race_id) # Need this method
-# # wild_pokemon = await pokemon_factory.create_pokemon_instance(race_data, level=5, is_wild=True, skills_for_race=skills_for_race)
-# # Or, pass all skills data and filter inside factory:
-# # all_skills = await metadata_service.get_all_skills()
-# # wild_pokemon = await pokemon_factory.create_pokemon_instance(race_data, level=5, is_wild=True, all_skills=all_skills) 
+    async def create_pokemon(self, race_data: Race, level: int, moves: List[int] = None,
+                             is_wild: bool = False, nickname: str = None,
+                             original_trainer_id: str = None) -> Pokemon:
+        """
+        通用宝可梦创建方法
+        
+        Args:
+            race_data: 宝可梦种族数据
+            level: 等级
+            moves: 指定技能ID列表
+            is_wild: 是否为野生宝可梦
+            nickname: 昵称
+            original_trainer_id: 原始训练师ID
+            
+        Returns:
+            创建的宝可梦实例
+        """
+        if is_wild:
+            pokemon = await self.create_wild_pokemon(race_data.race_id, level)
+        else:
+            pokemon = await self.create_starter_pokemon(race_data.race_id, level, nickname)
+        
+        # 设置原始训练师
+        if original_trainer_id:
+            pokemon.original_trainer_id = original_trainer_id
+        
+        # 设置自定义技能
+        if moves:
+            pokemon.skills = moves[:4]  # 最多4个技能
+        
+        return pokemon 

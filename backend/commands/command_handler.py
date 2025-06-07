@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 # Assuming AstrBot provides an event object structure
 # from astrbot.event import AstrMessageEvent, MessageEventResult
 from backend.commands.available_commands import AVAILABLE_COMMANDS
@@ -10,6 +10,8 @@ from backend.core.services.pokemon_service import PokemonService
 from backend.core.services.item_service import ItemService
 from backend.core.services.map_service import MapService
 from backend.core.services.dialog_service import DialogService
+from backend.models.player import Player
+from backend.utils.exceptions import CommandParseException, InvalidArgumentException, GameException, PlayerNotFoundException, RaceNotFoundException
 
 logger = get_logger(__name__)
 

@@ -1,77 +1,160 @@
-from typing import Optional, Dict, Any
-from backend.models.player import Player
+from typing import Dict, List, Optional, Any
+from backend.models.dialog import Dialog, DialogOption
+from backend.models.npc import NPC
+from backend.data_access.repositories.dialog_repository import DialogRepository
 from backend.data_access.repositories.metadata_repository import MetadataRepository
+from backend.utils.exceptions import DialogNotFoundException, NPCNotFoundException
 from backend.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 class DialogService:
-    """Service for Dialog related business logic."""
-
+    """对话服务，处理NPC对话和对话选项"""
+    
     def __init__(self):
+        self.dialog_repo = DialogRepository()
         self.metadata_repo = MetadataRepository()
-
-    async def get_dialog(self, dialog_id: int) -> Optional[Dict[str, Any]]: # Return dict for simplicity in MVP
+        
+    async def get_dialog(self, dialog_id: int) -> Dialog:
         """
-        Retrieves dialog data.
+        获取指定ID的对话
+        
+        Args:
+            dialog_id: 对话ID
+            
+        Returns:
+            对话对象
+            
+        Raises:
+            DialogNotFoundException: 如果对话不存在
         """
-        return await self.metadata_repo.get_dialog_by_id(dialog_id)
-
-    async def start_dialog(self, player: Player, dialog_id: int) -> str:
+        dialog = await self.dialog_repo.get_dialog(dialog_id)
+        if not dialog:
+            raise DialogNotFoundException(f"对话ID {dialog_id} 不存在")
+        return dialog
+        
+    async def get_npc_dialog(self, npc_id: int, player_id: str) -> Dict[str, Any]:
         """
-        Starts a dialogue sequence with a player.
-        Returns the initial dialogue text and options.
+        获取与NPC的对话，基于玩家的状态可能返回不同的对话
+        
+        Args:
+            npc_id: NPC的ID
+            player_id: 玩家ID，用于确定对话进度和状态
+            
+        Returns:
+            包含对话内容和选项的字典
+            
+        Raises:
+            NPCNotFoundException: 如果NPC不存在
         """
-        # Example workflow:
-        # 1. Get dialog data.
-        #    dialog_data = await self.get_dialog(dialog_id)
-        #    if not dialog_data:
-        #        return "Error: Dialog not found."
-        # 2. Check requirements (item, task status) if any.
-        #    # if dialog_data.get('requires_item') and player doesn't have it...
-        #    # if dialog_data.get('requires_task_status') and player's task status doesn't match...
-        # 3. Format the dialog text and options for the player.
-        #    message = dialog_data.get('text', '')
-        #    if dialog_data.get('options'):
-        #        message += "\nOptions:"
-        #        for i, option in enumerate(dialog_data['options']):
-        #            # Check option requirements if any
-        #            # if option meets requirements:
-        #            message += f"\n{i+1}. {option.get('text', '')}"
-        #    return message
-
-        logger.warning("start_dialog not fully implemented in MVP.")
-        return "Dialog system not implemented yet." # Placeholder
-
-    async def choose_dialog_option(self, player: Player, current_dialog_id: int, option_index: int) -> str:
+        # 获取NPC数据
+        npc = await self.metadata_repo.get_npc(npc_id)
+        if not npc:
+            raise NPCNotFoundException(f"NPC ID {npc_id} 不存在")
+            
+        # 获取玩家与该NPC的对话状态
+        dialog_state = await self.dialog_repo.get_player_npc_dialog_state(player_id, npc_id)
+        
+        # 确定当前对话ID
+        current_dialog_id = dialog_state.get('current_dialog_id') if dialog_state else npc.default_dialog_id
+        
+        # 获取当前对话
+        try:
+            dialog = await self.get_dialog(current_dialog_id)
+        except DialogNotFoundException:
+            # 如果当前对话不存在，使用默认对话
+            dialog = await self.get_dialog(npc.default_dialog_id)
+            
+        # 处理动态对话内容（例如，替换玩家名称等）
+        processed_text = self._process_dialog_text(dialog.text, player_id)
+        
+        # 处理对话选项
+        options = await self._process_dialog_options(dialog.options, player_id, npc_id)
+        
+        return {
+            "npc_id": npc_id,
+            "npc_name": npc.name,
+            "dialog_id": dialog.dialog_id,
+            "text": processed_text,
+            "options": options
+        }
+        
+    async def select_dialog_option(self, dialog_id: int, option_id: int, player_id: str) -> Dict[str, Any]:
         """
-        Processes a player's choice in a dialogue.
-        Returns the next dialogue text or result message.
+        选择对话选项，返回下一个对话或执行相应动作
+        
+        Args:
+            dialog_id: 当前对话ID
+            option_id: 选择的选项ID
+            player_id: 玩家ID
+            
+        Returns:
+            下一个对话或动作结果
+            
+        Raises:
+            DialogNotFoundException: 如果对话不存在
         """
-        # Example workflow:
-        # 1. Get current dialog data.
-        #    dialog_data = await self.get_dialog(current_dialog_id)
-        #    if not dialog_data or option_index < 0 or option_index >= len(dialog_data.get('options', [])):
-        #        return "Error: Invalid dialog or option."
-        # 2. Get the chosen option data.
-        #    chosen_option = dialog_data['options'][option_index]
-        # 3. Process the option's action (if any).
-        #    # if chosen_option.get('action') == 'give_item':
-        #    #    item_id = chosen_option.get('action_value')
-        #    #    await self.item_service.add_item_to_player(player.player_id, item_id) # Assuming ItemService dependency
-        #    #    return f"You received an item!"
-        #    # if chosen_option.get('action') == 'start_battle':
-        #    #    # Start a battle (potentially via BattleService)
-        #    #    return "A battle started!"
-        # 4. Determine the next dialog ID.
-        #    next_dialog_id = chosen_option.get('next_dialog_id')
-        # 5. If there's a next dialog, start it. Otherwise, end the dialog.
-        #    if next_dialog_id is not None:
-        #        return await self.start_dialog(player, next_dialog_id)
-        #    else:
-        #        return "Dialog ended."
-
-        logger.warning("choose_dialog_option not fully implemented in MVP.")
-        return "Dialog choice processing not implemented yet." # Placeholder
-
-    # Add other dialog related business logic methods
+        # 获取当前对话
+        dialog = await self.get_dialog(dialog_id)
+        
+        # 找到选择的选项
+        selected_option = None
+        for option in dialog.options:
+            if option.option_id == option_id:
+                selected_option = option
+                break
+                
+        if not selected_option:
+            raise ValueError(f"选项ID {option_id} 在对话 {dialog_id} 中不存在")
+            
+        # 更新对话状态
+        await self.dialog_repo.update_player_dialog_state(player_id, dialog_id, option_id)
+        
+        # 处理选项结果
+        result = {}
+        
+        # 如果选项指向另一个对话
+        if selected_option.next_dialog_id:
+            next_dialog = await self.get_dialog(selected_option.next_dialog_id)
+            result = {
+                "type": "dialog",
+                "dialog_id": next_dialog.dialog_id,
+                "text": self._process_dialog_text(next_dialog.text, player_id),
+                "options": await self._process_dialog_options(next_dialog.options, player_id)
+            }
+            
+        # 如果选项触发事件或动作
+        elif selected_option.action:
+            result = {
+                "type": "action",
+                "action": selected_option.action,
+                "params": selected_option.action_params
+            }
+            
+        return result
+        
+    def _process_dialog_text(self, text: str, player_id: str) -> str:
+        """处理对话文本，替换变量等"""
+        # 这里可以实现变量替换，例如 {player_name} 替换为玩家名称
+        # 简化版本，实际实现可能需要从数据库获取更多信息
+        return text
+        
+    async def _process_dialog_options(self, options: List[DialogOption], player_id: str, npc_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """处理对话选项，根据玩家状态过滤选项"""
+        # 简化版本，实际实现可能需要检查条件等
+        processed_options = []
+        
+        for option in options:
+            # 检查是否满足条件显示选项
+            if self._check_option_condition(option, player_id):
+                processed_options.append({
+                    "option_id": option.option_id,
+                    "text": option.text
+                })
+                
+        return processed_options
+        
+    def _check_option_condition(self, option: DialogOption, player_id: str) -> bool:
+        """检查对话选项条件"""
+        # 简化版本，实际实现可能需要检查任务状态、物品拥有情况等
+        return True

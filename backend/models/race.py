@@ -28,8 +28,6 @@ class Race:
     # Skills learned by level up
     learnable_skills: List[LearnableSkill] = field(default_factory=list)
 
-    # Add other ways to learn skills (e.g., TM/HM, egg moves, tutor moves) - TODO (S3 refinement)
-
     def to_dict(self) -> Dict[str, Any]:
         """Converts the Race object to a dictionary for storage/serialization."""
         return {

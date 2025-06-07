@@ -1,5 +1,3 @@
-# backend/core/pet/pet_item.py
-
 from typing import Optional
 from backend.models.pokemon import Pokemon
 from backend.models.item import Item # Need Item data
