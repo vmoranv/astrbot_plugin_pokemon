@@ -4,7 +4,7 @@ from backend.config.settings import settings
 from backend.utils.logger import get_logger
 # Import necessary repositories and models for pet system data
 from backend.data_access.repositories.pet_system_repository import PetSystemRepository # Example repository import
-from backend.models.pet_system_data import PetSystemData # Example model import
+from backend.models.pet_system import PetSystemData # Example model import
 
 logger = get_logger(__name__)
 

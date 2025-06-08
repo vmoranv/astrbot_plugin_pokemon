@@ -1,12 +1,11 @@
 # Import repositories here
-# from .player_repository import PlayerRepository
-# from .pokemon_repository import PokemonRepository
-# from .metadata_repository import MetadataRepository
-
+from .player_repository import PlayerRepository
+from .pokemon_repository import PokemonRepository
+from .metadata_repository import MetadataRepository
 from .pet_dictionary_repository import PetDictionaryRepository
 from .pet_system_repository import PetSystemRepository
 from .attribute_repository import AttributeRepository
-from .pet_learnable_skill_repository import PetLearnableSkillRepository
+from .pet_learnable_skills_repository import PetLearnableSkillRepository
 from .skill_repository import SkillRepository
 from .status_effect_repository import StatusEffectRepository
 from .field_effect_repository import FieldEffectRepository
@@ -18,5 +17,27 @@ from .task_repository import TaskRepository
 from .achievement_repository import AchievementRepository
 from .map_repository import MapRepository
 from .shop_repository import ShopRepository
+from .battle_repository import BattleRepository
 
-# This file makes the 'backend.data_access.repositories' directory a Python package. 
+# Explicitly declare what should be available when importing from this package
+__all__ = [
+    "PlayerRepository",
+    "PokemonRepository", 
+    "MetadataRepository",
+    "PetDictionaryRepository",
+    "PetSystemRepository",
+    "AttributeRepository",
+    "PetLearnableSkillRepository",
+    "SkillRepository",
+    "StatusEffectRepository",
+    "FieldEffectRepository",
+    "ItemRepository",
+    "EventRepository",
+    "NpcRepository",
+    "DialogRepository",
+    "TaskRepository",
+    "AchievementRepository",
+    "MapRepository",
+    "ShopRepository",
+    "BattleRepository",
+]

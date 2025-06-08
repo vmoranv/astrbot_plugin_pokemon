@@ -7,6 +7,7 @@ from backend.models.item import Item
 from backend.models.ability import Ability
 from backend.models.status_effect import StatusEffect # Import StatusEffect model
 from backend.models.field_effect import FieldEffect
+from backend.models.pokemon import Pokemon
 from backend.utils.logger import get_logger
 import os
 import pandas as pd

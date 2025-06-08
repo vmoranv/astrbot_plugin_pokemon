@@ -9,13 +9,13 @@ from backend.models.map import Map, MapLocation
 from backend.core.battle.battle_logic import BattleLogic
 from backend.core.battle.encounter_logic import EncounterLogic
 from backend.core.pet.pet_catch import calculate_catch_success
-from backend.models.events import (
+from backend.models.event import (
     BattleEvent, LevelUpEvent, StatChangeEvent, EvolutionEvent, 
     SkillLearnedEvent, BattleMessageEvent, ExperienceGainedEvent,
     SkillForgottenEvent, SkillReplacementRequiredEvent # 新增导入
 )
 from backend.core.pet.evolution_handler import EvolutionHandler
-from backend.core.services.pokemon_factory import PokemonFactory
+from backend.core.pokemon_factory import PokemonFactory
 from backend.data_access.metadata_loader import MetadataRepository
 from backend.models.skill import Skill
 from backend.models.item import Item

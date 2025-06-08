@@ -67,5 +67,3 @@ class AttributeRepository:
             await cursor.execute(sql)
             data = await cursor.fetchall()
             return [Attribute.model_validate(row) for row in data]
-
-    # 您可以在这里添加其他与 attributes 表相关的数据库操作方法 

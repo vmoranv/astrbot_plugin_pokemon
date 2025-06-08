@@ -1,8 +1,8 @@
 import aiosqlite
-from typing import Optional, Any, List, Dict
+from typing import Optional, Any, List, Dict, AsyncGenerator
 from backend.config.settings import settings
 from backend.utils.logger import get_logger
-import contextlib # 导入 contextlib 模块
+import contextlib
 
 logger = get_logger(__name__)
 
@@ -46,11 +46,10 @@ async def close_db_connection() -> None:
             # Depending on severity, you might want to re-raise or handle differently
             pass # For now, just log and continue
 
-@contextlib.asynccontextmanager # 使用 asynccontextmanager 装饰器
-async def get_db() -> aiosqlite.Connection:
+@contextlib.asynccontextmanager
+async def get_db() -> AsyncGenerator[aiosqlite.Connection, None]:
     """
     Provide an asynchronous database connection as a context manager.
-    Ensures the connection is properly handled within an async with block.
     """
     db = None
     try:
@@ -58,16 +57,9 @@ async def get_db() -> aiosqlite.Connection:
         yield db
     except Exception as e:
         logger.error(f"Database operation failed: {e}")
-        # Depending on your error handling strategy, you might want to rollback
-        # if db and not db.closed:
-        #     await db.rollback()
-        raise # Re-raise the exception after logging
+        raise
     finally:
-        # In this simple module-level connection approach, we don't close here
-        # as the connection is intended to be reused.
-        # For a connection pool or per-request connection, closing/releasing
-        # the connection would happen here.
-        pass # Keep the connection open for reuse in this simple model
+        pass
 
 async def execute_query(sql: str, params: tuple = ()) -> None:
     """
@@ -114,17 +106,9 @@ async def fetch_all(sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
         raise
 
 @contextlib.asynccontextmanager
-async def get_cursor() -> aiosqlite.Cursor:
+async def get_cursor() -> AsyncGenerator[aiosqlite.Cursor, None]:
     """
     提供一个异步上下文管理器来获取数据库游标。
-
-    使用方法:
-        async with get_cursor() as cursor:
-            await cursor.execute(...)
-            await cursor.fetchall() # 或 fetchone(), executemany() 等
-        # 游标在退出 with 块时自动关闭。
-        # 连接的提交/回滚由上下文管理器处理。
-        # 连接本身不在此处关闭，应由调用者管理。
     """
     conn = None
     cursor = None
@@ -132,25 +116,14 @@ async def get_cursor() -> aiosqlite.Cursor:
         conn = await get_db_connection()
         cursor = await conn.cursor()
         yield cursor
-        await conn.commit() # 默认提交事务
+        await conn.commit()
     except Exception as e:
         if conn:
-            await conn.rollback() # 发生异常时回滚事务
+            await conn.rollback()
         logger.error(f"Database operation failed: {e}", exc_info=True)
-        raise # 重新抛出异常
+        raise
     finally:
         if cursor:
             await cursor.close()
         if conn:
-            await conn.close() # 保留此行以避免测试卡住
-
-# Note: For a robust application, consider using a context manager for connections
-# or passing the connection/cursor explicitly to repository methods.
-# Example context manager approach:
-# async def get_cursor():
-#     conn = await get_db_connection()
-#     return await conn.cursor()
-#
-# async with get_cursor() as cursor:
-#     await cursor.execute(...)
-#     await conn.commit()
+            await conn.close()
